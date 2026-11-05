@@ -18,7 +18,12 @@ export function simulatedAngle(elapsedMs, exerciseId) {
   return standing;
 }
 
-export function simulatePose(elapsedMs, exerciseId) {
+export function simulatePose(elapsedMs, exerciseId, options = {}) {
+  const period = 4700;
+  const cycle = Math.floor(elapsedMs / period);
+  const t = (elapsedMs % period) / period;
+  const injectFault = options.simulateFault && cycle % 4 === 1 && t >= 0.38 && t <= 0.65;
+
   const points = blank();
   const angle = simulatedAngle(elapsedMs, exerciseId) * Math.PI / 180;
   if (exerciseId === 'squat') {
@@ -28,12 +33,16 @@ export function simulatePose(elapsedMs, exerciseId) {
     put(points,25,kneeX,kneeY); put(points,26,kneeX+.026,kneeY);
     put(points,27,kneeX,.89); put(points,28,kneeX+.025,.89);
     put(points,29,kneeX-.025,.90);put(points,30,kneeX+.007,.90);
-    put(points,11,hipX-.045,hipY-.25); put(points,12,hipX-.022,hipY-.25);
-    put(points,13,hipX-.035,hipY-.13); put(points,14,hipX-.007,hipY-.13);
+
+    const leanOffset = injectFault ? 0.22 : 0;
+    put(points,11,hipX-.045-leanOffset,hipY-.25); put(points,12,hipX-.022-leanOffset,hipY-.25);
+    put(points,13,hipX-.035-leanOffset*.6,hipY-.13); put(points,14,hipX-.007-leanOffset*.6,hipY-.13);
     put(points,15,hipX+.01,hipY-.05); put(points,16,hipX+.035,hipY-.05);
   } else {
-    const elbowX=.57,elbowY=.51;
-    put(points,11,.54,.30);put(points,12,.51,.31);
+    const elbowX = .57, elbowY = .51;
+    // When fault is injected, shift shoulder backward relative to elbow
+    const shoulderX = injectFault ? 0.42 : 0.54;
+    put(points,11,shoulderX,.30);put(points,12,shoulderX-.03,.31);
     put(points,13,elbowX,elbowY);put(points,14,.48,.53);
     put(points,15,elbowX+.20*Math.sin(angle),elbowY-.20*Math.cos(angle));
     put(points,16,.48,.74);

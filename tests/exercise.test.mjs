@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { angleDegrees, extractJointAngle, ExerciseAnalyzer } from '../src/exercise.js';
+import { angleDegrees, extractJointAngle, ExerciseAnalyzer, checkPostureFault } from '../src/exercise.js';
 import { simulatedAngle, simulatePose } from '../src/simulator.js';
 
 test('2D angle geometry, invalid and degenerate landmarks', () => {
@@ -118,4 +118,31 @@ test('analyzer tracks depth progress and retains active side during rep', () => 
   const s3 = a.update({ angle: 105, visible: true, timestamp: 800, side: '右侧' });
   assert.equal(s3.side, '左侧');
   assert.ok(s3.progress >= 95);
+});
+
+test('checkPostureFault detects excessive trunk forward lean in squat', () => {
+  const pose = simulatePose(2000, 'squat');
+  // Normal posture: shoulder 11 at (0.37, 0.41), hip 23 at (0.42, 0.66) -> dx ~ 0.05, dy ~ 0.25 (angle ~ 11°)
+  const normalFault = checkPostureFault(pose, 'squat', '左侧');
+  assert.equal(normalFault, null);
+
+  // Severe trunk lean: shoulder pitched forward significantly (x = 0.12 vs hip x = 0.42, dx = 0.30, dy = 0.22 -> angle ~ 53° > 46°)
+  pose[11] = { x: 0.12, y: 0.44, visibility: 0.95 };
+  const leanFault = checkPostureFault(pose, 'squat', '左侧');
+  assert.ok(leanFault);
+  assert.equal(leanFault.code, 'trunk_lean');
+  assert.match(leanFault.message, /挺胸收腹/);
+});
+
+test('checkPostureFault detects upper arm swinging during curl', () => {
+  const pose = simulatePose(2000, 'curl');
+  // Normal curl: shoulder 11 x=0.54, elbow 13 x=0.57 -> dx = 0.03 <= 0.11
+  assert.equal(checkPostureFault(pose, 'curl', '左侧'), null);
+
+  // Arm drift: elbow shifted to x=0.72 -> dx = 0.18 > 0.11
+  pose[13] = { x: 0.72, y: 0.51, visibility: 0.95 };
+  const swingFault = checkPostureFault(pose, 'curl', '左侧');
+  assert.ok(swingFault);
+  assert.equal(swingFault.code, 'arm_swing');
+  assert.match(swingFault.message, /大臂尽量贴紧躯干/);
 });

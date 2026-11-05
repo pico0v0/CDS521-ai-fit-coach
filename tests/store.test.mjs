@@ -30,4 +30,6 @@ test('advice depends on fatigue, incomplete reps, no reps and goal',()=>{
   assert.match(makeAdvice({...record,count:1,partialCount:5},'habit','normal'),/幅度/);
   assert.match(makeAdvice({...record,count:0,partialCount:0},'habit','normal'),/没有记录/);
   assert.match(makeAdvice(record,'strength','low'),/稳定/);
+  assert.match(makeAdvice({...record,count:4,faultCounts:{trunk_lean:2}},'habit','normal'),/躯干前倾/);
+  assert.match(makeAdvice({...record,count:4,faultCounts:{arm_swing:1}},'habit','normal'),/借力/);
 });

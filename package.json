@@ -1,7 +1,7 @@
 {
   "name": "ai-fit-coach-course-demo",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "description": "零构建依赖的 AI 视觉健身课堂演示：真实 MediaPipe + 独立标注的模拟模式",
   "scripts": {

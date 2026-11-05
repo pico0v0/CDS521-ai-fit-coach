@@ -105,7 +105,7 @@ function reportsPage() {
   return `<div class="page"><div class="page-heading"><div><div class="eyebrow">SESSION REVIEW / LOCAL RECORDS</div><h2>训练报告 <span>PROGRESS TRACKER</span></h2><p>只在浏览器本地保存次数等统计信息，不保存摄像头视频。</p></div><button class="btn btn-secondary" data-action="open-training">+ 新训练</button></div>
     <section class="report-metrics"><article><span>训练记录</span><strong>${sessions.length}</strong><small>SESSIONS</small></article><article><span>累计有效次数</span><strong>${totalCount}</strong><small>REPS</small></article><article><span>平均每次记录</span><strong>${mean}</strong><small>REPS / SESSION</small></article></section>
     <div class="report-grid"><section class="panel"><div class="panel-heading"><h3>最近一次训练</h3><span>LATEST SESSION</span></div>
-      ${current ? `<div class="latest-title">${escapeText(EXERCISES[current.exercise]?.name || current.exercise)} <span class="report-chip ${current.mode==='demo'?'demo-chip':''}">${current.mode==='demo'?'模拟数据':current.trackedFrames?'真实摄像头':'摄像头（未跟踪到人体）'}</span></div><div class="latest-date">${formatDate(current.startedAt)}</div><div class="session-numbers"><div><strong>${current.count}</strong><small>有效次数</small></div><div><strong>${current.partialCount}</strong><small>未达幅度</small></div><div><strong>${formatTime(current.durationSeconds)}</strong><small>训练时长</small></div></div><div class="advice-box"><span>✦ 个性化建议 · 规则模板</span><p>${escapeText(makeAdvice(current, current.goal || state.goal, current.fatigue || state.fatigue))}</p></div>` : `<div class="empty-state"><span>◎</span><h3>暂无训练记录</h3><p>进入训练页，开启真实摄像头或模拟演示，结束训练后会自动生成报告。</p><button class="btn btn-primary" data-action="open-training">立即开始 →</button></div>`}
+      ${current ? `<div class="latest-title">${escapeText(EXERCISES[current.exercise]?.name || current.exercise)} <span class="report-chip ${current.mode==='demo'?'demo-chip':''}">${current.mode==='demo'?'模拟数据':current.trackedFrames?'真实摄像头':'摄像头（未跟踪到人体）'}</span></div><div class="latest-date">${formatDate(current.startedAt)}</div><div class="session-numbers"><div><strong>${current.count}</strong><small>有效次数</small></div><div><strong>${current.partialCount}</strong><small>未达幅度</small></div><div><strong>${(current.faultCounts?.trunk_lean || 0) + (current.faultCounts?.arm_swing || 0)}</strong><small>姿态提示</small></div><div><strong>${formatTime(current.durationSeconds)}</strong><small>训练时长</small></div></div><div class="advice-box"><span>✦ 个性化建议 · 规则模板</span><p>${escapeText(makeAdvice(current, current.goal || state.goal, current.fatigue || state.fatigue))}</p></div>` : `<div class="empty-state"><span>◎</span><h3>暂无训练记录</h3><p>进入训练页，开启真实摄像头或模拟演示，结束训练后会自动生成报告。</p><button class="btn btn-primary" data-action="open-training">立即开始 →</button></div>`}
     </section><section class="panel"><div class="panel-heading"><h3>最近训练次数</h3><span>LAST 8 SESSIONS</span></div><div class="chart-wrap">${chart.length ? `<div class="bar-chart">${chart.map((s,i)=>`<div class="bar-cell"><span>${s.count}</span><div class="bar ${s.mode==='demo'?'bar-sim':''}" style="height:${Math.max(5, Math.round(s.count/max*185))}px"></div><small>${i+1}</small></div>`).join('')}</div><div class="legend"><span class="legend-dot"></span>真实 <span class="legend-dot sim"></span>模拟</div>` : `<div class="empty-chart">暂无数据，请先完成训练</div>`}</div></section></div>
     <section class="panel history-panel"><div class="panel-heading"><h3>历史记录</h3><button class="text-danger" data-action="clear-history" ${sessions.length?'':'disabled'}>清空本机记录</button></div><div class="history-table"><div class="history-head"><span>训练日期</span><span>动作</span><span>模式</span><span>有效次数</span><span>用时</span></div>${sessions.length ? sessions.map(s=>`<div class="history-row"><span>${formatDate(s.startedAt)}</span><span>${escapeText(EXERCISES[s.exercise]?.name || s.exercise)}</span><span>${s.mode==='demo'?'模拟':'真实'}</span><strong>${s.count}</strong><span>${formatTime(s.durationSeconds)}</span></div>`).join('') : '<p class="empty-records">暂无记录</p>'}</div></section>
     <div class="subtle-warning">注意：模拟模式生成的记录会明确标注为「模拟」，不可用作真实 AI 识别准确率实验数据。</div>
@@ -181,7 +181,8 @@ function onResult(landmarks, time) {
     angle: joint?.angle ?? null,
     visible: !!joint,
     timestamp: time,
-    side: joint?.side ?? null
+    side: joint?.side ?? null,
+    landmarks
   });
   updateTrainingUI(snapshot);
   if (snapshot.event) {
@@ -220,7 +221,7 @@ function renderFrame(now) {
 
   if (state.mode === 'demo') {
     const elapsed = now - state.startPerf - state.pauseDuration;
-    const landmarks = simulatePose(elapsed, state.exercise);
+    const landmarks = simulatePose(elapsed, state.exercise, { simulateFault: true });
     onResult(landmarks, now);
     drawPose(canvas, landmarks, {
       width: 960, height: 540,
@@ -328,7 +329,8 @@ function finishSession() {
     count: snapshot.count, partialCount: snapshot.partialCount,
     durationSeconds: seconds, goal: state.goal, fatigue: state.fatigue,
     trackedFrames: state.mode === 'camera' ? state.trackedFrames : 0,
-    warningCount: state.warningLogs.filter(e=>e.type==='warning').length
+    warningCount: state.warningLogs.filter(e=>e.type==='warning').length,
+    faultCounts: snapshot.faultCounts
   };
   stopRealtime(); state.mode=null; state.paused=false; state.modelReady=false;
   saveSession(record); state.lastSession = record;
