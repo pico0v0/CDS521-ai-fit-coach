@@ -14,3 +14,4 @@ python scripts/download_models.py
 2. `wasm/`（MediaPipe Tasks-vision WebAssembly 运行环境文件）
 
 当本目录存在上述离线文件时，网页将**自动优先加载本地离线模型**，无需连接外部网络。
+

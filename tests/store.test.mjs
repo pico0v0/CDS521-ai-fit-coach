@@ -22,8 +22,8 @@ test('corrupted and untrusted local records are ignored',()=>{
   const db=memoryStorage();
   db.setItem('aifit-demo-sessions-v1','not json');
   assert.deepEqual(loadSessions(db),[]);
-  db.setItem('aifit-demo-sessions-v1',JSON.stringify([{id:'bad',count:'oops'},record]));
-  assert.equal(loadSessions(db).length,1);
+  db.setItem('aifit-demo-sessions-v1',JSON.stringify([{id:'bad',count:'oops'},record,{...record,id:'2',exercise:'jumping_jack'}]));
+  assert.equal(loadSessions(db).length,2);
 });
 test('advice depends on fatigue, incomplete reps, no reps and goal',()=>{
   assert.match(makeAdvice(record,'habit','high'),/休息/);
@@ -32,17 +32,23 @@ test('advice depends on fatigue, incomplete reps, no reps and goal',()=>{
   assert.match(makeAdvice(record,'strength','low'),/稳定/);
   assert.match(makeAdvice({...record,count:4,faultCounts:{trunk_lean:2}},'habit','normal'),/躯干前倾/);
   assert.match(makeAdvice({...record,count:4,faultCounts:{arm_swing:1}},'habit','normal'),/借力/);
+  assert.match(makeAdvice({...record,exercise:'jumping_jack',count:8,faultCounts:{arm_asymmetry:1}},'habit','normal'),/不对称/);
 });
 
 test('session export generates valid CSV with BOM and JSON', () => {
-  const sample = [{ ...record, count: 12, faultCounts: { trunk_lean: 1, arm_swing: 0 } }];
+  const sample = [
+    { ...record, count: 12, faultCounts: { trunk_lean: 1, arm_swing: 0 } },
+    { ...record, id: '2', exercise: 'jumping_jack', count: 20, faultCounts: { arm_asymmetry: 1 } }
+  ];
   const csv = exportSessionsCSV(sample);
   assert.ok(csv.startsWith('\uFEFF'));
   assert.match(csv, /深蹲/);
-  assert.match(csv, /"12"/);
+  assert.match(csv, /开合跳/);
+  assert.match(csv, /"20"/);
 
   const jsonStr = exportSessionsJSON(sample);
   const parsed = JSON.parse(jsonStr);
+  assert.equal(parsed.length, 2);
   assert.equal(parsed[0].count, 12);
-  assert.equal(parsed[0].faultCounts.trunk_lean, 1);
+  assert.equal(parsed[1].exercise, 'jumping_jack');
 });

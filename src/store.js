@@ -7,7 +7,7 @@ export function loadSessions(storage = globalThis.localStorage) {
     if (!Array.isArray(records)) return [];
     return records.filter(r => typeof r === 'object' && r &&
       Number.isFinite(r.count) && Number.isFinite(r.durationSeconds) &&
-      typeof r.id === 'string' && ['squat', 'curl'].includes(r.exercise))
+      typeof r.id === 'string' && ['squat', 'curl', 'jumping_jack'].includes(r.exercise))
       .slice(0, MAX);
   } catch { return []; }
 }
@@ -22,7 +22,7 @@ export function clearSessions(storage = globalThis.localStorage) {
 }
 export function makeAdvice(record, goal, fatigue) {
   if (fatigue === 'high') return '你反馈当前较疲劳。建议先休息和恢复，下一次训练不增加训练量；若有疼痛或不适，应停止相关动作并寻求专业帮助。';
-  if (record.count === 0) return '这次没有记录到完整动作。请先检查全身或目标上肢是否入镜，并用慢节奏尝试几次完整动作。';
+  if (record.count === 0) return '这次没有记录到完整动作。请先检查全身或目标肢体是否入镜，并用慢节奏尝试几次完整动作。';
 
   const faultNotes = [];
   if (record.faultCounts?.trunk_lean > 0) {
@@ -30,6 +30,9 @@ export function makeAdvice(record, goal, fatigue) {
   }
   if (record.faultCounts?.arm_swing > 0) {
     faultNotes.push('训练中检测到手肘前后借力，建议减轻负重并让大臂紧贴肋侧');
+  }
+  if (record.faultCounts?.arm_asymmetry > 0) {
+    faultNotes.push('训练中检测到双臂起落不对称，建议起跳时控制双臂同步向上舒展');
   }
 
   if (record.partialCount > record.count && record.partialCount > 0) {
@@ -43,17 +46,18 @@ export function makeAdvice(record, goal, fatigue) {
 }
 
 export function exportSessionsCSV(sessions) {
-  const headers = ['ID', '训练时间', '动作名称', '动作代码', '运行模式', '有效次数', '未达幅度次数', '躯干前倾次数', '大臂借力次数', '训练时长(秒)', '训练目标', '主观疲劳'];
+  const headers = ['ID', '训练时间', '动作名称', '动作代码', '运行模式', '有效次数', '未达幅度次数', '躯干前倾次数', '大臂借力次数', '双臂不对称次数', '训练时长(秒)', '训练目标', '主观疲劳'];
   const rows = (sessions || []).map(s => [
     s.id,
     s.startedAt,
-    s.exercise === 'squat' ? '深蹲' : '哑铃弯举',
+    s.exercise === 'squat' ? '深蹲' : (s.exercise === 'curl' ? '哑铃弯举' : '开合跳'),
     s.exercise,
     s.mode === 'demo' ? '模拟演示' : '真实摄像头',
     s.count,
     s.partialCount || 0,
     s.faultCounts?.trunk_lean || 0,
     s.faultCounts?.arm_swing || 0,
+    s.faultCounts?.arm_asymmetry || 0,
     s.durationSeconds,
     s.goal || 'habit',
     s.fatigue || 'normal'

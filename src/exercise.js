@@ -10,12 +10,17 @@ export const EXERCISES = Object.freeze({
     guidance: '单侧手臂面向镜头，肩、肘、腕清晰可见。第一版仅统计较清晰的一侧。',
     extended: 155, started: 128, full: 65, direction: 'bend',
   },
+  jumping_jack: {
+    id: 'jumping_jack', name: '开合跳', english: 'JUMPING JACK', joint: '双臂展角', camera: '正面机位 · 全身入镜',
+    guidance: '正对摄像头，全身入镜。起跳时双臂向上舒展，落地时双臂与双腿自然收回。',
+    extended: 35, started: 55, full: 130, direction: 'expand',
+  },
 });
 
 export const DIFFICULTY_PRESETS = Object.freeze({
-  beginner: { name: '初学', squat: 122, curl: 80 },
-  standard: { name: '标准', squat: 110, curl: 65 },
-  advanced: { name: '进阶', squat: 95, curl: 50 },
+  beginner: { name: '初学', squat: 122, curl: 80, jumping_jack: 115 },
+  standard: { name: '标准', squat: 110, curl: 65, jumping_jack: 130 },
+  advanced: { name: '进阶', squat: 95, curl: 50, jumping_jack: 145 },
 });
 
 export function angleDegrees(a, b, c) {
@@ -34,6 +39,30 @@ export function extractJointAngle(landmarks, exerciseId, options = 0.6) {
   const visibilityThreshold = typeof options === 'number' ? options : (options.visibilityThreshold ?? 0.6);
   const preferredSide = typeof options === 'object' ? options.preferredSide : null;
   const hysteresis = typeof options === 'object' ? (options.hysteresis ?? 0.12) : 0.12;
+
+  if (exerciseId === 'jumping_jack') {
+    const leftPts = [23, 11, 15].map(i => landmarks[i]);
+    const rightPts = [24, 12, 16].map(i => landmarks[i]);
+    const leftValid = leftPts.every(p => p && Number.isFinite(p.x) && Number.isFinite(p.y) && (p.visibility ?? 1) >= visibilityThreshold);
+    const rightValid = rightPts.every(p => p && Number.isFinite(p.x) && Number.isFinite(p.y) && (p.visibility ?? 1) >= visibilityThreshold);
+
+    if (leftValid && rightValid) {
+      const leftAngle = angleDegrees(...leftPts);
+      const rightAngle = angleDegrees(...rightPts);
+      const avg = Math.round((leftAngle + rightAngle) / 2);
+      const score = Math.min(...leftPts.concat(rightPts).map(p => p.visibility ?? 1));
+      return { angle: avg, confidence: score, side: '双侧', ids: [11, 12, 13, 14, 15, 16, 23, 24] };
+    } else if (leftValid) {
+      const angle = Math.round(angleDegrees(...leftPts));
+      const score = Math.min(...leftPts.map(p => p.visibility ?? 1));
+      return { angle, confidence: score, side: '左侧', ids: [11, 13, 15, 23] };
+    } else if (rightValid) {
+      const angle = Math.round(angleDegrees(...rightPts));
+      const score = Math.min(...rightPts.map(p => p.visibility ?? 1));
+      return { angle, confidence: score, side: '右侧', ids: [12, 14, 16, 24] };
+    }
+    return null;
+  }
 
   const sideConfigs = exerciseId === 'curl'
     ? [{ ids: [11, 13, 15], side: '左侧' }, { ids: [12, 14, 16], side: '右侧' }]
@@ -97,6 +126,21 @@ export function checkPostureFault(landmarks, exerciseId, side = '左侧', option
     if (horizontalDrift > 0.11) {
       return { code: 'arm_swing', message: '大臂尽量贴紧躯干，避免前后晃动借力', value: Math.round(horizontalDrift * 100) };
     }
+  } else if (exerciseId === 'jumping_jack') {
+    const leftShoulder = landmarks[11], rightShoulder = landmarks[12];
+    const leftWrist = landmarks[15], rightWrist = landmarks[16];
+    const leftHip = landmarks[23], rightHip = landmarks[24];
+    if ([leftShoulder, rightShoulder, leftWrist, rightWrist, leftHip, rightHip]
+      .some(p => !p || (p.visibility ?? 1) < 0.45)) return null;
+
+    const leftArmAngle = angleDegrees(leftHip, leftShoulder, leftWrist);
+    const rightArmAngle = angleDegrees(rightHip, rightShoulder, rightWrist);
+    if (leftArmAngle !== null && rightArmAngle !== null) {
+      const asymmetry = Math.abs(leftArmAngle - rightArmAngle);
+      if (asymmetry > 35) {
+        return { code: 'arm_asymmetry', message: '双臂尽量对称舒展，避免单侧动作滞后', value: Math.round(asymmetry) };
+      }
+    }
   }
   return null;
 }
@@ -119,6 +163,7 @@ export class ExerciseAnalyzer {
     this.ready = false;
     this.inRep = false;
     this.minAngle = 180;
+    this.peakAngle = 0;
     this.repStartedAt = 0;
     this.lastUpdateAt = -1;
     this.lastAngle = null;
@@ -128,7 +173,7 @@ export class ExerciseAnalyzer {
     this.lastEvent = null;
     this.activeSide = null;
     this.depthProgress = 0;
-    this.faultCounts = { trunk_lean: 0, arm_swing: 0 };
+    this.faultCounts = { trunk_lean: 0, arm_swing: 0, arm_asymmetry: 0 };
     this.lastFaultTimes = {};
     this.currentFault = null;
   }
@@ -160,27 +205,37 @@ export class ExerciseAnalyzer {
     this.samples++;
     this.lastEvent = null;
     this.currentFault = null;
-    const { extended, started, full } = this.exercise;
+    const { extended, started, full, direction = 'bend' } = this.exercise;
+    const isExpand = direction === 'expand';
 
-    const progressRatio = (extended - measured) / Math.max(1, (extended - full));
+    const progressRatio = isExpand
+      ? (measured - extended) / Math.max(1, (full - extended))
+      : (extended - measured) / Math.max(1, (extended - full));
     this.depthProgress = Math.max(0, Math.min(120, Math.round(progressRatio * 100)));
 
-    if (!this.ready && !this.inRep && measured >= extended) {
+    const isAtExtended = isExpand ? measured <= extended : measured >= extended;
+    const isStarted = isExpand ? measured >= started : measured <= started;
+
+    if (!this.ready && !this.inRep && isAtExtended) {
       this.ready = true;
       this.phase = '已就绪';
-    } else if (this.ready && !this.inRep && measured <= started) {
+    } else if (this.ready && !this.inRep && isStarted) {
       this.inRep = true;
       this.ready = false;
       this.repStartedAt = timestamp;
       this.minAngle = measured;
+      this.peakAngle = measured;
       this.phase = '动作进行中';
       if (side) this.activeSide = side;
     } else if (this.inRep) {
       this.minAngle = Math.min(this.minAngle, measured);
-      this.phase = this.minAngle <= full ? '完成幅度 · 返回起点' : '动作进行中';
+      this.peakAngle = Math.max(this.peakAngle, measured);
+      const isFullReached = isExpand ? this.peakAngle >= full : this.minAngle <= full;
+      this.phase = isFullReached ? '完成幅度 · 返回起点' : '动作进行中';
 
       // Check posture faults during movement
-      if (landmarks && measured < started) {
+      const shouldCheckFault = isExpand ? measured > started : measured < started;
+      if (landmarks && shouldCheckFault) {
         const fault = checkPostureFault(landmarks, this.exercise.id, this.activeSide || side);
         if (fault) {
           const lastTime = this.lastFaultTimes[fault.code] || 0;
@@ -193,9 +248,9 @@ export class ExerciseAnalyzer {
         }
       }
 
-      if (measured >= extended) {
+      if (isAtExtended) {
         const duration = timestamp - this.repStartedAt;
-        const complete = this.minAngle <= full;
+        const complete = isExpand ? this.peakAngle >= full : this.minAngle <= full;
         if (duration >= MIN_REP_MS && duration >= MIN_TRACKING_INTERVAL_MS) {
           if (complete) {
             this.count++;
@@ -211,6 +266,7 @@ export class ExerciseAnalyzer {
         this.ready = true;
         this.phase = '已就绪';
         this.minAngle = 180;
+        this.peakAngle = 0;
       }
     }
     return this.snapshot();
@@ -218,7 +274,9 @@ export class ExerciseAnalyzer {
   snapshot() {
     return { count: this.count, partialCount: this.partialCount, phase: this.phase,
       angle: this.lastAngle, visible: this.visible, event: this.lastEvent, samples: this.samples,
-      side: this.activeSide, progress: this.depthProgress, minAngle: this.inRep ? Math.round(this.minAngle) : null,
+      side: this.activeSide, progress: this.depthProgress,
+      minAngle: this.inRep ? Math.round(this.minAngle) : null,
+      peakAngle: this.inRep ? Math.round(this.peakAngle) : null,
       fault: this.currentFault, faultCounts: { ...this.faultCounts },
       difficulty: this.exercise.difficulty, fullAngle: this.exercise.full, targetReps: this.targetReps };
   }

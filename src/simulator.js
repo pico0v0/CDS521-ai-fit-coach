@@ -6,11 +6,24 @@ export function simulatedAngle(elapsedMs, exerciseId) {
   const period = 4700;
   const cycle = Math.floor(elapsedMs / period);
   const t = (elapsedMs % period) / period;
+  const easing = u => u * u * (3 - 2 * u);
+
+  if (exerciseId === 'jumping_jack') {
+    const full = 138;
+    const partial = 85;
+    const peak = cycle % 4 === 2 ? partial : full;
+    const standing = 25;
+    if (t < .18) return standing;
+    if (t < .46) return standing + (peak - standing) * easing((t - .18) / .28);
+    if (t < .57) return peak;
+    if (t < .86) return peak - (peak - standing) * easing((t - .57) / .29);
+    return standing;
+  }
+
   const full = exerciseId === 'squat' ? 91 : 52;
   const partial = exerciseId === 'squat' ? 128 : 108;
   const floor = cycle % 4 === 2 ? partial : full;
   const standing = 174;
-  const easing = u => u * u * (3 - 2 * u);
   if (t < .18) return standing;
   if (t < .46) return standing - (standing - floor) * easing((t-.18)/.28);
   if (t < .57) return floor;
@@ -26,7 +39,44 @@ export function simulatePose(elapsedMs, exerciseId, options = {}) {
 
   const points = blank();
   const angle = simulatedAngle(elapsedMs, exerciseId) * Math.PI / 180;
-  if (exerciseId === 'squat') {
+
+  if (exerciseId === 'jumping_jack') {
+    const angleDeg = simulatedAngle(elapsedMs, exerciseId);
+    const leftTheta = angleDeg * Math.PI / 180;
+    const rightAngleDeg = injectFault ? angleDeg * 0.45 : angleDeg;
+    const rightTheta = rightAngleDeg * Math.PI / 180;
+
+    const shoulderY = 0.32;
+    const leftShoulderX = 0.44;
+    const rightShoulderX = 0.56;
+    put(points, 11, leftShoulderX, shoulderY);
+    put(points, 12, rightShoulderX, shoulderY);
+
+    const hipY = 0.58;
+    const leftHipX = 0.44;
+    const rightHipX = 0.56;
+    put(points, 23, leftHipX, hipY);
+    put(points, 24, rightHipX, hipY);
+
+    const armLen = 0.24;
+    const elbowLen = 0.12;
+
+    put(points, 13, leftShoulderX - elbowLen * Math.sin(leftTheta), shoulderY + elbowLen * Math.cos(leftTheta));
+    put(points, 15, leftShoulderX - armLen * Math.sin(leftTheta), shoulderY + armLen * Math.cos(leftTheta));
+
+    put(points, 14, rightShoulderX + elbowLen * Math.sin(rightTheta), shoulderY + elbowLen * Math.cos(rightTheta));
+    put(points, 16, rightShoulderX + armLen * Math.sin(rightTheta), shoulderY + armLen * Math.cos(rightTheta));
+
+    const legSpread = Math.max(0, (angleDeg - 25) / 113) * 0.10;
+    const kneeY = 0.76;
+    const ankleY = 0.92;
+    put(points, 25, leftHipX - legSpread * 0.5, kneeY);
+    put(points, 26, rightHipX + legSpread * 0.5, kneeY);
+    put(points, 27, leftHipX - legSpread, ankleY);
+    put(points, 28, rightHipX + legSpread, ankleY);
+    put(points, 29, leftHipX - legSpread - 0.02, ankleY + 0.01);
+    put(points, 30, rightHipX + legSpread + 0.02, ankleY + 0.01);
+  } else if (exerciseId === 'squat') {
     const kneeX = .6, kneeY = .66;
     const hipX = kneeX - .18*Math.sin(angle), hipY = kneeY + .18*Math.cos(angle);
     put(points,23,hipX,hipY); put(points,24,hipX+.025,hipY);

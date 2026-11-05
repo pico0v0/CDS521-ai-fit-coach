@@ -10,12 +10,12 @@ test('2D angle geometry, invalid and degenerate landmarks', () => {
   assert.equal(angleDegrees({x:0,y:0},{x:0,y:0},null), null);
 });
 
-test('synthetic landmarks have measurable squat and curl joint angles', () => {
-  for (const id of ['squat','curl']) {
+test('synthetic landmarks have measurable joint angles', () => {
+  for (const id of ['squat','curl','jumping_jack']) {
     const pose=simulatePose(2000,id);
     const joint=extractJointAngle(pose,id);
     assert.ok(joint && joint.confidence >= .9);
-    assert.ok(joint.angle > 40 && joint.angle <= 180);
+    assert.ok(joint.angle > 20 && joint.angle <= 180);
   }
 });
 
@@ -26,7 +26,7 @@ test('low visibility and missing landmarks do not produce fake measurements', ()
   assert.equal(extractJointAngle([], 'curl'),null);
 });
 
-for(const id of ['squat','curl']) {
+for(const id of ['squat','curl','jumping_jack']) {
   test(`${id}: counts 3 complete and flags one shallow in 4 synthetic cycles`, () => {
     const analyzer=new ExerciseAnalyzer(id);
     const events=[];
@@ -40,6 +40,9 @@ for(const id of ['squat','curl']) {
     assert.equal(analyzer.partialCount,1);
     assert.deepEqual(events,['success','success','warning','success']);
   });
+}
+
+for(const id of ['squat','curl']) {
   test(`${id}: static pose never counts`, () => {
     const analyzer=new ExerciseAnalyzer(id);
     for(let t=0;t<5000;t+=100) analyzer.update({angle:175,visible:true,timestamp:t+1});
@@ -62,6 +65,20 @@ for(const id of ['squat','curl']) {
     assert.equal(a.count,0);
   });
 }
+
+test('jumping_jack: static pose and interrupted rep handling', () => {
+  const staticAnalyzer = new ExerciseAnalyzer('jumping_jack');
+  for (let t = 0; t < 5000; t += 100) staticAnalyzer.update({ angle: 25, visible: true, timestamp: t + 1 });
+  assert.equal(staticAnalyzer.count, 0);
+
+  const interruptAnalyzer = new ExerciseAnalyzer('jumping_jack');
+  interruptAnalyzer.update({ angle: 25, visible: true, timestamp: 1 });
+  interruptAnalyzer.update({ angle: 135, visible: true, timestamp: 101 });
+  interruptAnalyzer.update({ angle: null, visible: false, timestamp: 201 });
+  interruptAnalyzer.update({ angle: 25, visible: true, timestamp: 301 });
+  assert.equal(interruptAnalyzer.count, 0);
+  assert.equal(interruptAnalyzer.partialCount, 0);
+});
 
 test('timestamps must be increasing; invalid exercise rejected', () => {
   assert.throws(()=>new ExerciseAnalyzer('unknown'));
@@ -145,6 +162,18 @@ test('checkPostureFault detects upper arm swinging during curl', () => {
   assert.ok(swingFault);
   assert.equal(swingFault.code, 'arm_swing');
   assert.match(swingFault.message, /大臂尽量贴紧躯干/);
+});
+
+test('checkPostureFault detects arm asymmetry in jumping jacks', () => {
+  const normalPose = simulatePose(2000, 'jumping_jack');
+  assert.equal(checkPostureFault(normalPose, 'jumping_jack'), null);
+
+  // Injected fault simulation (cycle % 4 === 1 at t=2000ms: 4700 + 2000 = 6700ms)
+  const faultPose = simulatePose(6700, 'jumping_jack', { simulateFault: true });
+  const fault = checkPostureFault(faultPose, 'jumping_jack');
+  assert.ok(fault);
+  assert.equal(fault.code, 'arm_asymmetry');
+  assert.match(fault.message, /对称舒展/);
 });
 
 test('analyzer supports difficulty presets and target rep goal achievement', () => {
