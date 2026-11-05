@@ -21,13 +21,13 @@ RESOURCES = [
     },
     {
         'name': 'vision_wasm_internal.wasm',
-        'url': 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm/vision_wasm_internal.wasm',
+        'url': 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21/wasm/vision_wasm_internal.wasm',
         'dest': WASM_DIR / 'vision_wasm_internal.wasm',
         'desc': 'MediaPipe Vision Tasks WASM Runtime'
     },
     {
         'name': 'vision_wasm_internal.js',
-        'url': 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm/vision_wasm_internal.js',
+        'url': 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21/wasm/vision_wasm_internal.js',
         'dest': WASM_DIR / 'vision_wasm_internal.js',
         'desc': 'MediaPipe Vision Tasks WASM Loader'
     }

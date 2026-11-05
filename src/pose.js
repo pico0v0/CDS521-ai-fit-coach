@@ -1,5 +1,5 @@
 /** Loads real Google MediaPipe only after explicit user action. Supports local offline model & fallback. */
-const VERSION = '0.10.22';
+const VERSION = '0.10.21';
 const CDN = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${VERSION}`;
 const REMOTE_MODEL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
 let modulePromise;
@@ -32,7 +32,17 @@ export async function createPoseLandmarker(options = {}) {
   const timeoutMs = options.timeoutMs ?? 18000;
 
   const initPromise = (async () => {
-    modulePromise ||= import(`${CDN}/+esm`);
+    modulePromise ||= (async () => {
+      try {
+        return await import(`${CDN}/+esm`);
+      } catch (e1) {
+        try {
+          return await import(`https://unpkg.com/@mediapipe/tasks-vision@${VERSION}/vision_bundle.mjs`);
+        } catch (e2) {
+          return await import(`https://esm.sh/@mediapipe/tasks-vision@${VERSION}`);
+        }
+      }
+    })();
     let visionModule;
     try {
       visionModule = await modulePromise;
@@ -48,7 +58,11 @@ export async function createPoseLandmarker(options = {}) {
     try {
       wasm = await FilesetResolver.forVisionTasks(wasmPath);
     } catch {
-      wasm = await FilesetResolver.forVisionTasks(`${CDN}/wasm`);
+      try {
+        wasm = await FilesetResolver.forVisionTasks(`${CDN}/wasm`);
+      } catch {
+        wasm = await FilesetResolver.forVisionTasks(`https://unpkg.com/@mediapipe/tasks-vision@${VERSION}/wasm`);
+      }
     }
 
     const detectorOptions = {
