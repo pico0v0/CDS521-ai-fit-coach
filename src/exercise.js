@@ -214,6 +214,7 @@ export class ExerciseAnalyzer {
     this.armPeakLegSynchronized = false;
     this.armPeakTimestamp = null;
     this.legPeakTimestamp = null;
+    this.legRatioAtArmPeak = null;
   }
   update({ angle, visible = true, timestamp, side = null, landmarks = null }) {
     if (!Number.isFinite(timestamp)) throw new Error('timestamp must be finite milliseconds');
@@ -227,6 +228,7 @@ export class ExerciseAnalyzer {
       this.minAnkleDist = Infinity; this.peakAnkleDist = 0;
       this.legTrackingLost = false; this.hadValidLegRatio = false;
       this.armPeakLegSynchronized = false; this.armPeakTimestamp = null; this.legPeakTimestamp = null;
+      this.legRatioAtArmPeak = null;
     }
     if (!visible || !Number.isFinite(angle) || angle < 5 || angle > 180) {
       // A lost pose must not complete a rep; reacquire while extended.
@@ -243,6 +245,7 @@ export class ExerciseAnalyzer {
       this.armPeakLegSynchronized = false;
       this.armPeakTimestamp = null;
       this.legPeakTimestamp = null;
+      this.legRatioAtArmPeak = null;
       return this.snapshot();
     }
     this.visible = true;
@@ -266,6 +269,7 @@ export class ExerciseAnalyzer {
       this.armPeakLegSynchronized = false;
       this.armPeakTimestamp = null;
       this.legPeakTimestamp = null;
+      this.legRatioAtArmPeak = null;
       this.lastEvent = { type: 'warning', message: '检测到动作侧别切换，本轮动作已重置', timestamp };
       return this.snapshot();
     }
@@ -341,15 +345,15 @@ export class ExerciseAnalyzer {
 
       // Track temporal arm-leg synchronization for jumping jacks (R-005)
       if (this.exercise.id === 'jumping_jack') {
-        if (measured >= (this.peakAngle || 0)) {
+        const overheadThreshold = Math.min(125, this.exercise.full - 5);
+        if (measured >= (this.peakAngle || 0) - 4 && measured >= overheadThreshold) {
           this.armPeakTimestamp = timestamp;
-        }
-        // When arms are in the overhead peak zone (>= 125°), check concurrent leg spread & ankle displacement
-        if (measured >= 125 && currentLegMetrics !== null) {
-          if (currentLegMetrics.ratio >= 1.55 && currentLegMetrics.ankleDist >= 1.30 * this.minAnkleDist) {
-            this.armPeakLegSynchronized = true;
-            this.legSpreadAtArmPeak = Math.max(this.legSpreadAtArmPeak || 0, currentLegMetrics.ratio);
-            this.ankleDistAtArmPeak = Math.max(this.ankleDistAtArmPeak || 0, currentLegMetrics.ankleDist);
+          if (currentLegMetrics !== null) {
+            this.legRatioAtArmPeak = currentLegMetrics.ratio;
+            this.ankleDistAtArmPeak = currentLegMetrics.ankleDist;
+            if (currentLegMetrics.ratio >= 1.50 && currentLegMetrics.ankleDist >= 1.30 * this.minAnkleDist) {
+              this.armPeakLegSynchronized = true;
+            }
           }
         }
       }
@@ -389,7 +393,7 @@ export class ExerciseAnalyzer {
           } else if (this.peakAnkleDist < 1.35 * this.minAnkleDist || (this.peakAnkleDist - this.minAnkleDist) < 0.035) {
             legComplete = false;
             legFaultReason = '双脚踝未见真实展开位移，不能以单纯髋距变化伪造开合跳';
-          } else if (!this.armPeakLegSynchronized) {
+          } else if (!this.armPeakLegSynchronized || (this.legRatioAtArmPeak !== null && this.legRatioAtArmPeak < 1.45)) {
             legComplete = false;
             legFaultReason = '双臂与双腿展开不同步，手臂上举最高峰时双腿未处于展开状态';
           } else if (endMetrics.ratio > 1.40) {
@@ -426,6 +430,7 @@ export class ExerciseAnalyzer {
         this.armPeakLegSynchronized = false;
         this.armPeakTimestamp = null;
         this.legPeakTimestamp = null;
+        this.legRatioAtArmPeak = null;
         this.legSpreadAtArmPeak = 0;
         this.ankleDistAtArmPeak = 0;
       }

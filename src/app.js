@@ -24,7 +24,7 @@ const state = {
   stream: null, detector: null, frame: 0, lastFrame: 0, lastVideoTime: -1,
   startWall: 0, startPerf: 0, pauseAt: 0, pauseDuration: 0, warningLogs: [],
   lastSession: null, toast: '', activeRunId: 0, modelReady: false, trackedFrames: 0,
-  fps: 0, latencyMs: 0, fpsFrames: 0, fpsLastTime: 0, currentHighlightJoints: null
+  fps: 0, latencyMs: 0, latencySumMs: 0, fpsFrames: 0, fpsLastTime: 0, totalInferredFrames: 0, inferFramesWindow: 0, currentHighlightJoints: null
 };
 const icons = {
   home:'⌂', training:'◉', reports:'▥', about:'◇', camera:'▣', close:'×',
@@ -294,9 +294,9 @@ function renderFrame(now) {
   state.fpsFrames++;
   if (now - state.fpsLastTime >= 1000) {
     state.renderFps = Math.round((state.fpsFrames * 1000) / (now - state.fpsLastTime));
-    state.inferFps = Math.round(((state.inferFrames || 0) * 1000) / (now - state.fpsLastTime));
+    state.inferFps = Math.round(((state.inferFramesWindow || 0) * 1000) / (now - state.fpsLastTime));
     state.fpsFrames = 0;
-    state.inferFrames = 0;
+    state.inferFramesWindow = 0;
     state.fpsLastTime = now;
     const perfTag = document.querySelector('#perfIndicator');
     if (perfTag && state.mode) {
@@ -311,7 +311,8 @@ function renderFrame(now) {
   if (!canvas) return;
 
   if (state.mode === 'demo') {
-    state.inferFrames = (state.inferFrames || 0) + 1;
+    state.inferFramesWindow = (state.inferFramesWindow || 0) + 1;
+    state.totalInferredFrames = (state.totalInferredFrames || 0) + 1;
     const elapsed = now - state.startPerf - state.pauseDuration;
     const landmarks = simulatePose(elapsed, state.exercise, { simulateFault: true });
     const snapshot = onResult(landmarks, now);
@@ -330,8 +331,11 @@ function renderFrame(now) {
     try {
       const t0 = performance.now();
       const result = state.detector.detectForVideo(video, now);
-      state.latencyMs = Math.round(performance.now() - t0);
-      state.inferFrames = (state.inferFrames || 0) + 1;
+      const cost = performance.now() - t0;
+      state.latencyMs = Math.round(cost);
+      state.latencySumMs = (state.latencySumMs || 0) + cost;
+      state.totalInferredFrames = (state.totalInferredFrames || 0) + 1;
+      state.inferFramesWindow = (state.inferFramesWindow || 0) + 1;
       const landmarks = result.landmarks?.[0] || null;
       const snapshot = onResult(landmarks, now);
       drawPose(canvas, landmarks, {
@@ -369,8 +373,8 @@ async function begin(mode, file = null) {
   state.mode = mode; state.running = true; state.paused = false;
   state.startWall = Date.now(); state.startPerf = performance.now();
   state.pauseDuration = 0; state.lastFrame = 0; state.lastVideoTime = -1;
-  state.fpsFrames = 0; state.inferFrames = 0; state.fpsLastTime = 0;
-  state.renderFps = undefined; state.inferFps = undefined; state.latencyMs = 0;
+  state.fpsFrames = 0; state.totalInferredFrames = 0; state.inferFramesWindow = 0; state.fpsLastTime = 0;
+  state.renderFps = undefined; state.inferFps = undefined; state.latencyMs = 0; state.latencySumMs = 0;
   state.warningLogs = []; state.modelReady = false; state.trackedFrames = 0; state.targetAchieved = false;
   state.analyzer.configure(state.exercise, { difficulty: state.difficulty, targetReps: state.targetReps });
   const run = ++state.activeRunId;
@@ -412,10 +416,10 @@ async function begin(mode, file = null) {
       });
       if (run !== state.activeRunId) return;
 
-      // Register seek listener BEFORE setting currentTime = 0, with proper cleanup
+      // Register seek listener BEFORE setting currentTime = 0, with non-blind error handling
       video.pause();
       if (video.currentTime !== 0) {
-        await new Promise((resolve) => {
+        const seekPromise = new Promise((resolve, reject) => {
           let timer = null;
           const onSeeked = () => {
             clearTimeout(timer);
@@ -423,12 +427,14 @@ async function begin(mode, file = null) {
             resolve();
           };
           video.addEventListener('seeked', onSeeked, { once: true });
-          video.currentTime = 0;
           timer = setTimeout(() => {
             video.removeEventListener('seeked', onSeeked);
-            resolve();
-          }, 300);
+            if (video.currentTime === 0 && video.readyState >= 2) resolve();
+            else reject(new Error('视频无法跳转至第 0 秒首帧，请检查文件格式'));
+          }, 1000);
         });
+        video.currentTime = 0;
+        await seekPromise;
       }
       if (run !== state.activeRunId) return;
 
@@ -436,6 +442,32 @@ async function begin(mode, file = null) {
       const { detector, isLocalModel } = await createPoseLandmarker();
       if (run !== state.activeRunId) { detector.close(); return; }
       state.detector = detector; state.modelReady = true;
+
+      // Pre-analyze paused frame 0 so frame 0 is verified to pass through model inference
+      try {
+        const t0 = performance.now();
+        const firstResult = state.detector.detectForVideo(video, performance.now());
+        const cost = performance.now() - t0;
+        state.latencyMs = Math.round(cost);
+        state.latencySumMs = (state.latencySumMs || 0) + cost;
+        state.totalInferredFrames = (state.totalInferredFrames || 0) + 1;
+        state.inferFramesWindow = (state.inferFramesWindow || 0) + 1;
+        const firstLandmarks = firstResult.landmarks?.[0] || null;
+        if (firstLandmarks?.length) state.trackedFrames = (state.trackedFrames || 0) + 1;
+        onResult(firstLandmarks, performance.now());
+        const canvas = document.querySelector('#poseCanvas');
+        if (canvas && video.videoWidth > 0) {
+          drawPose(canvas, firstLandmarks, {
+            width: video.videoWidth,
+            height: video.videoHeight,
+            highlightJoints: state.currentHighlightJoints,
+            angle: null,
+            depthProgress: 0
+          });
+        }
+      } catch (firstFrameErr) {
+        console.warn('Initial frame 0 inference note:', firstFrameErr);
+      }
 
       state.startWall = Date.now(); state.startPerf = performance.now();
       refreshModeUI();
@@ -445,13 +477,17 @@ async function begin(mode, file = null) {
       const stage = document.querySelector('#cameraStage');
       stage?.classList.remove('mirror');
 
-      // Start playback synchronized with frame sampling loop
-      await video.play();
-
+      // Register video.onended BEFORE playback starts
       video.onended = () => {
-        inform(`视频播放完毕：AI 实际采样推理 ${state.inferFrames || 0} 帧，有效检出人体姿态 ${state.trackedFrames || 0} 帧（平均单帧推理耗时约 ${state.latencyMs || 0}ms）。可点击「结束训练」查看本次评测报告。`, 'info');
+        const avgLatency = (state.totalInferredFrames > 0 && state.latencySumMs > 0)
+          ? Math.round(state.latencySumMs / state.totalInferredFrames)
+          : (state.latencyMs || 0);
+        inform(`视频播放完毕：AI 实际采样推理 ${state.totalInferredFrames || 0} 帧，有效检出人体姿态 ${state.trackedFrames || 0} 帧（平均单帧推理耗时约 ${avgLatency}ms）。可点击「结束训练」查看本次评测报告。`, 'info');
       };
+
+      // Start the render loop before starting playback
       state.frame = requestAnimationFrame(renderFrame);
+      await video.play();
       return;
     } catch (error) {
       console.error('Video / MediaPipe evaluation startup failure', error);
@@ -534,7 +570,7 @@ function finishSession(manualCount = null) {
     count: snapshot.count, partialCount: snapshot.partialCount,
     durationSeconds: seconds, goal: state.goal, fatigue: state.fatigue,
     trackedFrames: (state.mode === 'camera' || state.mode === 'video') ? state.trackedFrames : 0,
-    inferredFrames: (state.mode === 'camera' || state.mode === 'video') ? (state.inferFrames || 0) : 0,
+    inferredFrames: (state.mode === 'camera' || state.mode === 'video') ? (state.totalInferredFrames || 0) : 0,
     warningCount: state.warningLogs.filter(e=>e.type==='warning').length,
     faultCounts: snapshot.faultCounts,
     manualCount: hasManual ? manualCount : null,

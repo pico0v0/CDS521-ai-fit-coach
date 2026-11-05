@@ -238,26 +238,36 @@ test('R-004 regression: side switch while tracked side stays bent does NOT count
   assert.equal(a.count, 0, 'Abruptly switching to straight opposite leg must not count as a completed squat');
 });
 
-test('R-005 regression: jumping jacks require bidirectional leg coordination across all 4 scenarios', () => {
-  function testJumpingJackScenario(mode) {
-    const a = new ExerciseAnalyzer('jumping_jack');
+test('R-005 regression: jumping jacks require bidirectional leg coordination across all scenarios', () => {
+  function testJumpingJackScenario(mode, options = {}) {
+    const difficulty = options.difficulty || 'standard';
+    const a = new ExerciseAnalyzer('jumping_jack', { difficulty });
     const standing = simulatePose(0, 'jumping_jack');
     const spread = simulatePose(2200, 'jumping_jack');
     for (let t = 0; t < 4 * 4700; t += 100) {
       const p = simulatePose(t, 'jumping_jack');
+      const phase = t % 4700;
       if (mode === 'closed') for (const i of [25, 26, 27, 28, 29, 30]) p[i] = { ...standing[i] };
       if (mode === 'wide') for (const i of [25, 26, 27, 28, 29, 30]) p[i] = { ...spread[i] };
       if (mode === 'occluded') for (const i of [27, 28]) p[i].visibility = 0;
       if (mode === 'hips_move_ankles_static') {
         for (const i of [25, 26, 27, 28, 29, 30]) p[i] = { ...standing[i] };
-        const phase = t % 4700;
         if (phase > 1450 && phase < 2050) {
           p[23].x = 0.47; p[24].x = 0.53;
         }
       }
       if (mode === 'legs_out_of_sync') {
-        const phase = t % 4700;
         for (const i of [25, 26, 27, 28, 29, 30]) p[i] = { ...(phase >= 1450 && phase <= 1750 ? spread[i] : standing[i]) };
+      }
+      if (mode === 'early_leg_close') {
+        for (const i of [25, 26, 27, 28, 29, 30]) p[i] = { ...(phase >= 2100 && phase <= 2200 ? spread[i] : standing[i]) };
+      }
+      if (mode === 'beginner_118') {
+        const theta = Math.min(simulatedAngle(t, 'jumping_jack'), 118) * Math.PI / 180;
+        for (const [shoulder, elbow, wrist, dir] of [[11, 13, 15, -1], [12, 14, 16, 1]]) {
+          p[elbow] = { ...p[elbow], x: p[shoulder].x + dir * 0.12 * Math.sin(theta), y: p[shoulder].y + 0.12 * Math.cos(theta) };
+          p[wrist] = { ...p[wrist], x: p[shoulder].x + dir * 0.24 * Math.sin(theta), y: p[shoulder].y + 0.24 * Math.cos(theta) };
+        }
       }
       const j = extractJointAngle(p, 'jumping_jack');
       a.update({ angle: j?.angle, visible: !!j, timestamp: t + 1, side: j?.side, landmarks: p });
@@ -290,7 +300,17 @@ test('R-005 regression: jumping jacks require bidirectional leg coordination acr
   assert.equal(syncRes.count, 0, 'Asynchronous leg spread before arms overhead must not count as jumping jacks');
   assert.equal(syncRes.partial, 4);
 
-  // 6. Normal synchronized jumping jacks: 3 complete reps, 1 planned shallow rep
+  // 6. Early leg close (legs spread briefly and close while arms remain overhead at true peak) -> count must be 0
+  const earlyCloseRes = testJumpingJackScenario('early_leg_close');
+  assert.equal(earlyCloseRes.count, 0, 'Legs closing while arms remain at peak overhead must not count');
+  assert.equal(earlyCloseRes.partial, 4);
+
+  // 7. Beginner mode with arms reaching 118° (target 115°) and normal legs -> count must be 3 complete, 1 shallow
+  const beginnerRes = testJumpingJackScenario('beginner_118', { difficulty: 'beginner' });
+  assert.equal(beginnerRes.count, 3, 'Beginner mode must accept arms reaching 118° when target is 115°');
+  assert.equal(beginnerRes.partial, 1, 'Beginner mode retains planned shallow rep');
+
+  // 8. Normal synchronized jumping jacks: 3 complete reps, 1 planned shallow rep
   const normalRes = testJumpingJackScenario('normal');
   assert.equal(normalRes.count, 3, 'Normal jumping jacks must retain 3 completed reps');
   assert.equal(normalRes.partial, 1, 'Normal jumping jacks must retain 1 shallow rep');

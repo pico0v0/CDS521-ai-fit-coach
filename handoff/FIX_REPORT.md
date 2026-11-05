@@ -1,3 +1,58 @@
+# FIX_REPORT — v0.2.1-r7 P1 最终闭环与审查验收对齐报告
+
+> **目标版本**：v0.2.1-r7  
+> **修复范围**：基于第六轮复审报告（`AI Fit Coach v0.2.1-r6 — 第六轮 P1 专项复审`）及返修指令（`NEXT_AI_R7_FIX_PROMPT.md`），定向修复最后两个遗留 P1 问题：  
+> 1. **R-005 开合跳初学者难度阈值动态协同与峰值同步容差加固（解决 115° 冲突与 `early_leg_close` 边界）**；  
+> 2. **R-003 视频采样统计分离累计与窗口计数、修正平均推理耗时及首帧真实推理保证**。  
+> 
+> *说明：P0 安全保持结案，R-009 一对一事件级匹配在 r6 已正式通过结案。*
+
+---
+
+## 1. R-005：初学者开合跳难度阈值动态协同与峰值同步容差加固
+
+### 1.1 根因与复现
+- **初学者阈值冲突**：系统初学者开合跳预设角度为 115°。原代码在验证上下肢协同展开时硬编码了 `if (measured >= 125)`，导致初学者即使动作舒展达到 118°，也会被 125° 门槛强制拦截，输出 `count: 0, partial: 4`；
+- **手臂最高峰已收腿边界（`early_leg_close`）**：受试者双腿在手臂即将上升前短暂张开，但在手臂持续处于最高角度时双腿已并拢；原代码由于曾经置位 `armPeakLegSynchronized = true`，导致该异步动作被误计为 3 次有效动作。
+
+### 1.2 修复措施
+1. 动态自适应协同门控：
+   - 将固定 125° 改为与当前难度达标目标动态关联的 `overheadThreshold = Math.min(125, this.exercise.full - 5)`；
+   - 初学者模式下（`full: 115`），`overheadThreshold` 自适应为 110°，输入 118° 时能够顺利达成 3 次有效动作与 1 次计划浅动作；
+2. 双臂最高峰时刻腿部展开状态锁存：
+   - 增加 `this.legRatioAtArmPeak` 记录手臂处于峰值最高点时刻的下肢开合比；
+   - 在动作结束判定中，若手臂到达最高峰时下肢开合比已经低于 1.45（`this.legRatioAtArmPeak < 1.45`），坚决判定为未达标不计数；
+3. 测试覆盖：
+   - 运行审查 AI 提供的 `R6_INDEPENDENT_REPRO.mjs`，`beginner_118` 准确计入 3 次有效动作，`early_leg_close` 准确被阻断为 0 次；
+   - `tests/exercise.test.mjs` 增设两项单测断言。
+
+---
+
+## 2. R-003：视频采样统计分离累计与窗口计数、修正平均推理耗时及首帧真实推理保证
+
+### 2.1 根因与复现
+- 原 `state.inferFrames` 每约 1 秒在滑动 FPS 窗口中被置为 0，导致视频结束提示与历史记录持久化读取到的只是最后一个不足 1 秒窗口的微小计数值（例如 60 帧视频报告显示 3 帧），甚至小于检出姿态的 `trackedFrames`；
+- “平均单帧推理耗时”此前读取的是最近单帧的 `latencyMs`，而非真实平均值；
+- 视频在播放前缺少暂停首帧的实质性推理检测，seek 超时时盲目成功放行。
+
+### 2.2 修复措施
+1. 彻底分离会话累计推理与滑动 FPS 窗口：
+   - `state.totalInferredFrames`：会话生命周期累计总推理调用次数，持续递增永不被秒级重置；
+   - `state.inferFramesWindow`：每秒滑动窗口计数，每秒用于计算 FPS 并清零；
+   - 结束报告与会话持久化 `inferredFrames` 统一读取 `totalInferredFrames`，确保累计推理帧数严格 `>= trackedFrames`；
+2. 真实平均单帧推理耗时：
+   - 引入 `latencySumMs` 累计所有帧推理耗时总和；
+   - 视频结束时按 `Math.round(latencySumMs / totalInferredFrames)` 报告真正的加权平均耗时；
+3. 暂停状态首帧真实推理与严格 seek 校验：
+   - 在 `video.play()` 之前，在暂停于 0 秒的状态下直接调用一次 `state.detector.detectForVideo(video, ...)`，确保第 0 帧真正进入模型分析；
+   - 在启动播放前注册 `video.onended`，先启动 `requestAnimationFrame(renderFrame)` 再调用 `await video.play()`；
+   - seek 监听若超时，必须核验目标帧已解码（`currentTime === 0 && readyState >= 2`），否则拒绝放行；
+4. 测试覆盖：
+   - `tests/store.test.mjs` 新增模拟 3.5 秒（跨越 3 个 1 秒窗口重置）的视频时间线单测，断言累计推理次数为 35 帧不被清零且 `>= trackedFrames`（17 帧），均值耗时严格准确；
+   - 运行 `R6_INDEPENDENT_REPRO.mjs`，`appSourceFindings` 全部 6 项静态检测 100% 通过（全部为 `false`）。
+
+---
+
 # FIX_REPORT — v0.2.1-r6 P1 专项彻底闭环与审查验收对齐报告
 
 > **目标版本**：v0.2.1-r6  

@@ -1,5 +1,22 @@
 # CHANGELOG（每轮 AI 必须追加）
 
+## v0.2.1-r7 — 第七轮 P1 专项彻底闭环：初学者开合跳难度阈值协同、峰值同步容差防护、视频累计推理帧数与耗时均值纠偏（2026-11-05）
+
+### 已修复问题（P1 专项攻坚与审查验收彻底对齐）
+- **R-005 [P1/规则配置] 开合跳难度预设动态协同与峰值同步容差加固**：
+  - `src/exercise.js`：
+    - 消除硬编码 `measured >= 125°` 导致的初学者模式（`full: 115°`）冲突；改用与当前难度达标目标动态关联的 `overheadThreshold = Math.min(125, this.exercise.full - 5)`；
+    - 验证初学者目标 115°、动作峰值 118° 的输入能够正常达成 3 次有效计数与 1 次原计划浅动作；
+    - 增加双臂达最高峰时的下肢展开状态锁存（`legRatioAtArmPeak`）；若双腿提前跳开并在手臂上举最高峰前已收拢（`early_leg_close`），断言其最高峰时刻腿部展开比率低于 1.45 而不予计数（有效计数由 3 降为 0）；
+    - `tests/exercise.test.mjs`：单测扩充至覆盖全部 8 类场景（含 `beginner_118` 与 `early_leg_close`），独立断言完全绿灯。
+- **R-003 [P1/采样统计] 区分会话累计推理次数与滑动 FPS 窗口、计算真实平均单帧耗时与首帧执行保证**：
+  - `src/app.js`：
+    - 彻底分离会话累计推理次数（`state.totalInferredFrames`）与每秒滑动统计窗口（`state.inferFramesWindow`）；FPS 窗口计数每秒清零，但总累计推理计数持续递增；
+    - `video.onended` 与会话存储 `inferredFrames` 统一读取 `totalInferredFrames`，确保累计推理次数严格 `>=` 有效检出人体姿态次数（`trackedFrames`）；
+    - 引入 `latencySumMs` 累计耗时总和，视频结束时按 `Math.round(latencySumMs / totalInferredFrames)` 准确计算并展示真正的平均单帧推理耗时；
+    - 视频第 0 帧处理机制强化：在暂停状态下对首帧执行一次真实推理，验证模型管线可用并记录首帧数据，随后同步启动渲染循环与 `video.play()`；若 seeked 超时未就绪，显式报错而非盲目放行；
+    - `tests/store.test.mjs`：新增模拟 3.5 秒（跨越 3 个滑动 FPS 周期）视频时间线回归测试，断言累计推理次数不被清零且 `>= trackedFrames`。
+
 ## v0.2.1-r6 — 第六轮 P1 专项闭环：开合跳严格时序协同与脚踝位移核验、视频首帧真实就绪与指标清晰化、浅动作严格一对一事件匹配（2026-11-05）
 
 ### 已修复问题（P1 专项定向返修与审查验收彻底对齐）

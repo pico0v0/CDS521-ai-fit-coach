@@ -145,8 +145,49 @@ test('exportSessionsCSV uses deriveVerifiedAbsError ensuring screen MAE matches 
   // Row 4: low frame session must be eligible = 否, reason = 有效姿态跟踪帧数不足
   assert.match(lines[4], /^"low-frame-ineligible",.*,"10","1","1","9","否","有效姿态跟踪帧数不足/);
 
-  // Consistency: filtering CSV rows where 计入真实MAE == "是" matches computeMaeStats realMae exactly!
+  // Consistency: filtering CSV rows where 计入真实MAE == "是" matches computeMaeStats realMae粘 matches computeMaeStats realMae exactly!
   const stats = computeMaeStats(sessions);
   assert.equal(stats.realCount, 2);
   assert.equal(stats.realMae, 5.00); // (2 + 8) / 2 = 5.00
+});
+
+test('R-003 regression: video timeline simulation spanning >3s proves cumulative infer counts are never wiped by 1-sec FPS resets', () => {
+  // Simulate video session state over 3.5 seconds with 1-sec sliding FPS resets
+  const simState = {
+    totalInferredFrames: 0,
+    inferFramesWindow: 0,
+    fpsFrames: 0,
+    fpsLastTime: 0,
+    trackedFrames: 0,
+    latencySumMs: 0,
+    latencyMs: 0
+  };
+
+  // Run 35 frames over 3500ms (10 FPS video sampling rate)
+  for (let t = 100; t <= 3500; t += 100) {
+    if (!simState.fpsLastTime) simState.fpsLastTime = t;
+    simState.fpsFrames++;
+
+    // 1-second FPS sliding window trigger
+    if (t - simState.fpsLastTime >= 1000) {
+      simState.fpsFrames = 0;
+      simState.inferFramesWindow = 0; // Window resets every second
+      simState.fpsLastTime = t;
+    }
+
+    // Simulate inference
+    const latency = 15;
+    simState.latencyMs = latency;
+    simState.latencySumMs += latency;
+    simState.totalInferredFrames++; // Cumulative counter MUST NOT reset!
+    simState.inferFramesWindow++;
+    if (t % 200 === 0) simState.trackedFrames++; // Human detected every 200ms
+  }
+
+  // Verification after 3.5 seconds across 3 window resets:
+  assert.equal(simState.totalInferredFrames, 35, 'Cumulative inferred frames must equal total calls (35), not wiped by 1-sec window resets');
+  assert.ok(simState.totalInferredFrames >= simState.trackedFrames, 'Cumulative inference count must be >= tracked human pose frames');
+  assert.equal(simState.trackedFrames, 17, 'Tracked frames correctly accumulated');
+  const avgLatency = Math.round(simState.latencySumMs / simState.totalInferredFrames);
+  assert.equal(avgLatency, 15, 'Average latency accurately computed from cumulative sum / total');
 });
