@@ -235,26 +235,31 @@ test("R-003 integration: begin('video') path strictly verifies frame 0 single tr
   let source = readFileSync(original, 'utf8');
   const poseImport = "import { createPoseLandmarker } from './pose.js';";
   const drawImport = "import { drawPose, drawIdle } from './draw.js';";
-  source = source.replace(poseImport, `const createPoseLandmarker = async () => ({
-    detector: {
-      detectForVideo: () => {
-        if (globalThis.__testFirstFrameFail) throw new Error('TEST_FIRST_FRAME_SIMULATED_FAILURE');
-        if (globalThis.__testEmptyLandmarks) return { landmarks: [] };
-        return {
-          landmarks: [Array.from({ length: 33 }, (_, i) => ({ x: 0.2 + i * 0.003, y: 0.2 + i * 0.001, visibility: 0.9 }))]
-        };
+  source = source.replace(poseImport, `const createPoseLandmarker = async () => {
+    if (globalThis.__testUseDeferredModel) {
+      await globalThis.__testModelDeferredPromise;
+    }
+    return {
+      detector: {
+        detectForVideo: () => {
+          if (globalThis.__testFirstFrameFail) throw new Error('TEST_FIRST_FRAME_SIMULATED_FAILURE');
+          if (globalThis.__testEmptyLandmarks) return { landmarks: [] };
+          return {
+            landmarks: [Array.from({ length: 33 }, (_, i) => ({ x: 0.2 + i * 0.003, y: 0.2 + i * 0.001, visibility: 0.9 }))]
+          };
+        },
+        close: () => {}
       },
-      close: () => {}
-    },
-    isLocalModel: true
-  });`);
+      isLocalModel: true
+    };
+  };`);
   source = source.replace(drawImport, 'const drawPose = () => {}; const drawIdle = () => {};');
-  source += '\nexport { state, begin, stopRealtime };\n';
+  source += '\nexport { state, begin, stopRealtime, finishSession };\n';
 
   writeFileSync(tempPath, source, { flag: 'w' });
 
   try {
-    const { state, begin, stopRealtime } = await import(pathToFileURL(tempPath).href);
+    const { state, begin, stopRealtime, finishSession } = await import(pathToFileURL(tempPath).href);
 
     // Subtest 1: Successful frame 0 detection produces exactly 1 inferred and 1 tracked frame
     globalThis.__testFirstFrameFail = false;
@@ -320,6 +325,72 @@ test("R-003 integration: begin('video') path strictly verifies frame 0 single tr
     }
     assert.equal(state.totalInferredFrames, 35);
     assert.equal(state.trackedFrames, 17);
+    stopRealtime();
+    state.mode = null;
+
+    // Subtest 5: Cancel pending video waiting for loadeddata, start demo, then delayed video error fires
+    state.view = 'training';
+    const videoNode = nodes.get('#liveVideo');
+    videoNode.readyState = 0;
+    const handlers = new Map();
+    videoNode.addEventListener = (ev, fn) => handlers.set(ev, fn);
+    videoNode.removeEventListener = (ev, fn) => { if (handlers.get(ev) === fn) handlers.delete(ev); };
+
+    const pendingVideo = begin('video', { name: 'waiting.mp4' });
+    assert.equal(state.mode, 'video');
+    finishSession();
+    assert.equal(state.mode, null);
+
+    await begin('demo');
+    assert.equal(state.mode, 'demo');
+    assert.equal(state.running, true);
+
+    const onError = handlers.get('error');
+    assert.ok(onError, 'expected video error handler');
+    const delayedErr = console.error;
+    console.error = () => {};
+    try {
+      onError();
+      await pendingVideo;
+    } finally {
+      console.error = delayedErr;
+    }
+
+    assert.equal(state.mode, 'demo', 'Demo session must remain active after delayed video error');
+    assert.equal(state.running, true, 'Running flag must remain true');
+    stopRealtime();
+    state.mode = null;
+
+    // Subtest 6: Delayed model failure from cancelled run does not affect subsequent session
+    state.view = 'training';
+    let delayedModelReject;
+    globalThis.__testModelDeferredPromise = new Promise((_, rej) => { delayedModelReject = rej; });
+    globalThis.__testModelDeferredPromise.catch(() => {}); // Prevent unhandled promise rejection in harness
+    globalThis.__testUseDeferredModel = true;
+    videoNode.readyState = 2; // Let loadeddata pass immediately
+
+    const pendingModelVideo = begin('video', { name: 'slow-model.mp4' });
+    assert.equal(state.mode, 'video');
+    finishSession();
+    assert.equal(state.mode, null);
+
+    await begin('demo');
+    assert.equal(state.mode, 'demo');
+    assert.equal(state.running, true);
+
+    // Now delayed model rejection fires for the cancelled video run
+    const deferredErr = console.error;
+    console.error = () => {};
+    try {
+      delayedModelReject(new Error('DEFERRED_MODEL_INIT_FAILURE'));
+      await pendingModelVideo.catch(() => {});
+    } finally {
+      console.error = deferredErr;
+      globalThis.__testUseDeferredModel = false;
+    }
+
+    assert.equal(state.mode, 'demo', 'Demo mode must remain undisturbed by old model failure');
+    assert.equal(state.running, true, 'Demo session must continue running');
     stopRealtime();
     state.mode = null;
 

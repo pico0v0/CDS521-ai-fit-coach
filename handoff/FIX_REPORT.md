@@ -1,3 +1,52 @@
+# FIX_REPORT — v0.2.1-r9 P1 最终全面闭环与审查验收对齐报告
+
+> **目标版本**：v0.2.1-r9  
+> **修复范围**：基于第八轮复审报告（`AI Fit Coach v0.2.1-r8 — 第八轮 P1 专项复审`）及返修指令（`NEXT_AI_R9_FIX_PROMPT.md`），定向修复 R-003 遗留的最后两项竞态缺陷，实现全套 P1 专项彻底闭环：  
+> 1. **P1-R003-03：旧视频异步初始化取消后的延迟异常穿透与新会话误杀防范（全流程严格执行运行令牌校验）**；  
+> 2. **测试补充：在 `tests/store.test.mjs` 中新增端到端取消后迟到异常注入与旧模型延迟失败隔离断言**；  
+> 3. **审查对齐：外部审查脚本 `REPRO_R8_VIDEO.mjs` 4 项测试场景 100% 绿色转正**。  
+> 
+> *说明：P0 安全保持结案；R-005 开合跳动态协同保持结案；R-009 一对一事件匹配保持结案；R-003-01 首帧单计数与 R-003-02 首帧失败阻断在 r8 已正式结案通过。*
+
+---
+
+## 1. P1-R003-03：消除旧视频异步初始化取消后的生命周期竞态
+
+### 1.1 根因与复现
+- **根因**：在 `src/app.js` 约 501–509 行的 `begin('video')` 外层 `catch (error)` 处理块中，原代码未校验当前任务的运行标识 `run` 是否等于全局最新的 `state.activeRunId`，便直接调用了全局 `stopRealtime()` 并将 `state.mode` 重置为 `null`。
+- **复现步骤**：
+  1. 用户选择本地视频，系统开始等待视频首帧解码（挂起状态）；
+  2. 用户中途点击“结束训练”取消该次视频评测（`finishSession()` 将 `activeRunId` 递增）；
+  3. 用户立即点击启动新的演示训练（`begin('demo')` 将 `activeRunId` 再次递增，`state.mode = 'demo'` 开始运行）；
+  4. 旧视频异步操作由于解析失败或被销毁触发了延迟的 `error` 回调，使旧的 `begin('video')` Promise 进入 `catch`；
+  5. 旧任务的 `catch` 盲目执行 `stopRealtime()`，错误地将新启动的 demo 演示会话清理，导致 `state.mode = null`、`running = false`、活跃动画帧归零。
+
+### 1.2 修复措施
+1. **严格运行令牌生命周期检查**：
+   - 在 `begin('video')` 与 `begin('camera')` 的外层 `catch (error)` 处理块首行，强制加入：
+     ```javascript
+     if (run !== state.activeRunId) return;
+     ```
+   - 任何已被用户取消或失效的旧任务，其内部抛出的迟到错误将被严格丢弃，绝不会调用 `stopRealtime()` 清理新会话，绝不篡改新会话的 `state.mode` 与 `running` 状态。
+2. **定时器 Node 兼容优化**：
+   - 为 `toast` 提示定时器补充 `unref()` 调用，防止测试环境下未退出的定时器无谓延长事件循环生命周期。
+
+### 1.3 验证证据
+1. **独立审查脚本验证**：
+   - 运行审查 AI 提供的 `audit/AI_Fit_Coach_v0.2.1-r8_REVIEW/AI_Fit_Coach_v0.2.1-r8_Review/REPRO_R8_VIDEO.mjs`，输出为：
+     ```json
+     {"case":"one-human","inferred":1,"tracked":1,"mode":"video","ready":true,"plays":1}
+     {"case":"no-human","inferred":1,"tracked":0,"mode":"video","ready":true,"plays":1}
+     {"case":"initial-inference-error","inferred":0,"tracked":0,"mode":null,"ready":false,"plays":0,"close":1,"revoke":1,"activeRAF":0}
+     {"case":"cancel-pending-video-then-new-demo","expectedMode":"demo","actualMode":"demo","running":true,"activeRAF":1}
+     ```
+     原先失败的 `cancel-pending-video-then-new-demo` 准确断言 `actualMode: "demo", running: true, activeRAF: 1`，全部 4 项 100% 通过。
+2. **项目单测覆盖（`tests/store.test.mjs` 测试 34）**：
+   - **Subtest 5**：真实模拟旧视频首帧等待中被取消并切换至 demo，注入旧视频延迟 `error` 回调，断言新 demo 会话保持 `state.mode === 'demo'` 与 `state.running === true` 持续运行；
+   - **Subtest 6**：真实模拟旧模型异步加载延迟拒绝，断言其异常被令牌拦截，绝不破坏新会话。
+
+---
+
 # FIX_REPORT — v0.2.1-r8 P1 最终全面闭环与审查验收对齐报告
 
 > **目标版本**：v0.2.1-r8  

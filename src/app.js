@@ -499,6 +499,7 @@ async function begin(mode, file = null) {
       await video.play();
       return;
     } catch (error) {
+      if (run !== state.activeRunId) return;
       console.error('Video / MediaPipe evaluation startup failure', error);
       stopRealtime(); state.mode = null; state.paused = false; state.modelReady = false;
       refreshModeUI();
@@ -537,6 +538,7 @@ async function begin(mode, file = null) {
     stage?.classList.toggle('mirror', state.facing==='user');
     state.frame = requestAnimationFrame(renderFrame);
   } catch (error) {
+    if (run !== state.activeRunId) return;
     console.error('Camera / MediaPipe startup failure', error);
     stopRealtime(); state.mode=null; state.paused=false; state.modelReady=false;
     refreshModeUI();
@@ -592,7 +594,9 @@ function finishSession(manualCount = null) {
 function toast(message) {
   const element = document.querySelector('#toast'); if (!element) return;
   element.textContent = message; element.classList.add('show');
-  clearTimeout(toast.timer); toast.timer = setTimeout(()=>element.classList.remove('show'),3500);
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(()=>element.classList.remove('show'),3500);
+  if (toast.timer?.unref) toast.timer.unref();
 }
 
 document.addEventListener('click', async event => {

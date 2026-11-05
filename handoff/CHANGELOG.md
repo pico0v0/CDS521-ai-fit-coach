@@ -1,5 +1,18 @@
 # CHANGELOG（每轮 AI 必须追加）
 
+## v0.2.1-r9 — 第九轮 P1 专项彻底闭环：消除旧视频异步初始化取消竞态、加固全生命周期运行令牌（2026-11-05）
+
+### 已修复问题（P1-R003-03 专项定向返修与审查验收彻底对齐）
+- **P1-R003-03 [P1/生命周期] 消除旧会话取消后的延迟异常穿透与新会话资源误杀**：
+  - `src/app.js`：
+    - 在 `begin('video')` 与 `begin('camera')` 的外层 `catch (error)` 处理块首行，严格添加 `if (run !== state.activeRunId) return;` 运行令牌生命周期检查；
+    - 任何旧会话在挂起或等待阶段产生但迟到的异常（如视频文件错误、模型加载失败或网络中断），绝不会执行全局 `stopRealtime()` 清理，绝不会重置新会话的 `state.mode`、`running` 状态或活跃动画循环；
+    - `toast` 定时器添加 Node 环境 `unref()` 支持，彻底消除测试环境下残留定时器对事件循环的无谓挂起；
+  - `tests/store.test.mjs`：
+    - 在测试 34 中新增端到端取消竞态反例验证（Subtest 5：旧视频首帧等待中被取消切换为 demo，旧视频延迟 error 事件触发后，断言 `state.mode === 'demo'`、`state.running === true` 持续运行；Subtest 6：旧模型延迟 reject 同样被令牌拦截，新 demo 会话保持完全独立运行）；
+    - 运行审查 AI 提供的 `REPRO_R8_VIDEO.mjs` 独立审计脚本，全部 4 项场景 100% 绿色转正（包括 `cancel-pending-video-then-new-demo` 准确报告 `actualMode: "demo", running: true, activeRAF: 1`）；
+    - 全套 34/34 项单元测试 100% PASS。
+
 ## v0.2.1-r8 — 第八轮 P1 专项彻底闭环：消除首帧重复计数、首帧推理失败阻断与真实启动路径端到端测试（2026-11-05）
 
 ### 已修复问题（R-003 专项定向返修与审查验收彻底对齐）
