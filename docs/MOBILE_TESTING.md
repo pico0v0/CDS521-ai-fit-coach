@@ -41,18 +41,26 @@
 
 如果需要在支持自签名证书的环境（如局域网已信任根证书）运行 HTTPS：
 
-1. 在项目根目录下生成自签名证书文件 `key.pem` 和 `cert.pem`：
+> [!SECURITY] 安全准则（解决 R-001）
+> 私钥与证书文件必须存放在项目根目录之外（例如项目父目录 `../ai-fit-coach-tls/`），静态服务器严禁通过 HTTP 直接访问 `.pem` 或 `.key` 文件，打包脚本也会主动拦截任何证书或私钥文件。
+
+1. 在项目父目录下创建安全目录并生成自签名证书文件：
    - **Linux / macOS / Git Bash**：
      ```bash
-     openssl req -x509 -newkey rsa:2048 -nodes -sha256 -keyout key.pem -out cert.pem -days 365 -subj "/CN=localhost"
+     mkdir -p ../ai-fit-coach-tls
+     openssl req -x509 -newkey rsa:2048 -nodes -sha256 \
+       -keyout ../ai-fit-coach-tls/key.pem \
+       -out ../ai-fit-coach-tls/cert.pem \
+       -days 365 -subj "/CN=localhost"
      ```
-   - **Windows PowerShell（管理员）**：
+   - **Windows PowerShell**：
      ```powershell
-     $cert = New-SelfSignedCertificate -DnsName "localhost" -CertStoreLocation "cert:\LocalMachine\My"
+     New-Item -ItemType Directory -Force -Path ..\ai-fit-coach-tls
+     # 生成后导出至 ..\ai-fit-coach-tls\key.pem 与 cert.pem
      ```
-2. 启动 HTTPS 服务：
+2. 启动 HTTPS 服务（支持环境变量自定义路径）：
    ```bash
-   HOST=0.0.0.0 HTTPS=true node server.mjs
+   HOST=0.0.0.0 HTTPS=true TLS_KEY_PATH=../ai-fit-coach-tls/key.pem TLS_CERT_PATH=../ai-fit-coach-tls/cert.pem node server.mjs
    ```
 3. 手机访问 `https://<电脑局域网IP>:4173`（首次访问需在手机上手动确认“继续前往不安全网站”）。
 

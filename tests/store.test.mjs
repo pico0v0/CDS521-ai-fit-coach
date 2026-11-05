@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { loadSessions, saveSession, clearSessions, makeAdvice, exportSessionsCSV, exportSessionsJSON } from '../src/store.js';
+import { loadSessions, saveSession, clearSessions, makeAdvice, exportSessionsCSV, exportSessionsJSON, computeMaeStats } from '../src/store.js';
 
 function memoryStorage() {
   const map=new Map();
@@ -56,4 +56,48 @@ test('session export generates valid CSV with BOM and JSON', () => {
   assert.equal(parsed[0].manualCount, 10);
   assert.equal(parsed[0].absError, 2);
   assert.equal(parsed[1].exercise, 'jumping_jack');
+});
+
+test('computeMaeStats strictly isolates real AI sessions from simulation data', () => {
+  // 1. Only demo sessions with 0 error: realMae must be null (not 0.00!)
+  const demoOnly = Array.from({ length: 10 }, (_, i) => ({
+    ...record,
+    id: `demo-${i}`,
+    mode: 'demo',
+    count: 10,
+    manualCount: 10,
+    absError: 0
+  }));
+  const resDemo = computeMaeStats(demoOnly);
+  assert.equal(resDemo.realMae, null, 'realMae must be null when only demo data is present');
+  assert.equal(resDemo.realCount, 0);
+  assert.equal(resDemo.demoMae, 0.00);
+  assert.equal(resDemo.demoCount, 10);
+
+  // 2. Real camera/video sessions with error
+  const realSessions = [
+    { ...record, id: 'real-1', mode: 'camera', count: 12, manualCount: 10, absError: 2, trackedFrames: 120 },
+    { ...record, id: 'real-2', mode: 'video', count: 15, manualCount: 16, absError: 1, trackedFrames: 200 }
+  ];
+  const resReal = computeMaeStats(realSessions);
+  assert.equal(resReal.realMae, 1.50);
+  assert.equal(resReal.realCount, 2);
+
+  // 3. Mixing 10 perfect demo sessions does NOT dilute or change real MAE at all!
+  const mixed = [...realSessions, ...demoOnly];
+  const resMixed = computeMaeStats(mixed);
+  assert.equal(resMixed.realMae, 1.50, 'realMae must remain exactly 1.50 even when 10 demo sessions are mixed');
+  assert.equal(resMixed.realCount, 2);
+  assert.equal(resMixed.demoMae, 0.00);
+  assert.equal(resMixed.demoCount, 10);
+
+  // 4. Invalid manualCount or insufficient tracked frames are rejected
+  const invalid = [
+    { ...record, id: 'bad-1', mode: 'camera', count: 10, manualCount: -5, absError: 15, trackedFrames: 100 },
+    { ...record, id: 'bad-2', mode: 'video', count: 10, manualCount: 3.8, absError: 6.2, trackedFrames: 100 },
+    { ...record, id: 'bad-3', mode: 'camera', count: 10, manualCount: 10, absError: 0, trackedFrames: 2 } // < 5 frames
+  ];
+  const resInvalid = computeMaeStats(invalid);
+  assert.equal(resInvalid.realMae, null);
+  assert.equal(resInvalid.realCount, 0);
 });

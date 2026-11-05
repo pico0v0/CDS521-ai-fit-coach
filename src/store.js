@@ -45,14 +45,41 @@ export function makeAdvice(record, goal, fatigue) {
   return `本次记录 ${record.count} 次完整动作。建议下次继续${goals[goal] || goals.habit}；可维持相近训练量，根据实际感受逐步调整。${faultSuffix}视频检测并非专业动作诊断。`;
 }
 
+export function computeMaeStats(sessions = []) {
+  const realEvaluated = (sessions || []).filter(s =>
+    (s.mode === 'camera' || s.mode === 'video') &&
+    Number.isInteger(s.manualCount) && s.manualCount >= 0 &&
+    Number.isFinite(s.absError) &&
+    (s.trackedFrames || 0) >= 5
+  );
+  const demoEvaluated = (sessions || []).filter(s =>
+    s.mode === 'demo' &&
+    Number.isInteger(s.manualCount) && s.manualCount >= 0 &&
+    Number.isFinite(s.absError)
+  );
+  const realMae = realEvaluated.length
+    ? Number((realEvaluated.reduce((sum, s) => sum + s.absError, 0) / realEvaluated.length).toFixed(2))
+    : null;
+  const demoMae = demoEvaluated.length
+    ? Number((demoEvaluated.reduce((sum, s) => sum + s.absError, 0) / demoEvaluated.length).toFixed(2))
+    : null;
+  return {
+    realMae,
+    realCount: realEvaluated.length,
+    demoMae,
+    demoCount: demoEvaluated.length
+  };
+}
+
 export function exportSessionsCSV(sessions) {
-  const headers = ['ID', '训练时间', '动作名称', '动作代码', '运行模式', '系统有效次数', '未达幅度次数', '人工对照次数', '绝对误差', '躯干前倾次数', '大臂借力次数', '双臂不对称次数', '训练时长(秒)', '训练目标', '主观疲劳'];
+  const headers = ['ID', '训练时间', '动作名称', '动作代码', '运行模式', '跟踪有效帧数', '系统有效次数', '未达幅度次数', '人工核验达标次数', '绝对误差', '躯干前倾次数', '大臂借力次数', '双臂不对称次数', '训练时长(秒)', '训练目标', '主观疲劳'];
   const rows = (sessions || []).map(s => [
     s.id,
     s.startedAt,
     s.exercise === 'squat' ? '深蹲' : (s.exercise === 'curl' ? '哑铃弯举' : '开合跳'),
     s.exercise,
     s.mode === 'demo' ? '模拟演示' : (s.mode === 'video' ? '本地视频AI' : '真实摄像头'),
+    s.trackedFrames || 0,
     s.count,
     s.partialCount || 0,
     Number.isFinite(s.manualCount) ? s.manualCount : '',

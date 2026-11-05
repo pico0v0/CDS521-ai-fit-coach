@@ -1,32 +1,54 @@
-# TEST_RESULTS — 本轮已执行与未执行（v0.2.0）
+# TEST_RESULTS — 本轮已执行与未执行（v0.2.1-r1）
 
-> **一定遵循证据原则**：本文件记录实际执行。模型接线不等于摄像头 E2E 通过。
+> **坚守学术诚实与证据原则**：本文件记录实际执行与未执行内容。算法模拟通过绝不代表真实 AI 摄像头通过。
 
-## 已完成（代码环境：Node 22.16.0 / Windows 11）
+## 一、自动化验收执行记录（执行环境：Node 22.16.0 / Windows 11）
 
-- `npm run check`：**PASS**。全部 6 个 ES 模块源码（`app.js`, `exercise.js`, `pose.js`, `simulator.js`, `store.js`, `draw.js`）语法检查通过。
-- `npm test`：**PASS**。**25/25** 项单元测试全部绿色通过：
-  - 二维几何角度与退化关键点处理（1 个）
-  - 合成关键点坐标测量与低置信度过滤（2 个）
-  - 核心动作周期循环与浅动作拦截（深蹲、弯举、开合跳各 1 个，共 3 个）
-  - 异常状态机防御（静态姿态不计数、丢失姿态中断、长时卡顿跳变处理，共 7 个）
-  - 时间戳单调性与非法动作防卫（1 个）
-  - 侧身迟滞过滤（Hysteresis Locking，1 个）
-  - 动作分析器深度进度跟踪与单侧锁定（1 个）
-  - 姿态异常检测（躯干前倾、大臂晃动、双臂不对称，共 3 个）
-  - 难度预设（初学/标准/进阶）与组数目标达成检测（1 个）
-  - 本地存储边界、防篡改、个性化建议引擎（3 个）
-  - 会话数据导出（UTF-8 BOM CSV / JSON 导出，包含 `manualCount` 与 `absError`，1 个）
-- `node scripts/smoke.mjs`：**PASS**。本地静态服务、路由 MIME、越权路径拦截及 404 返回符合规范。
-- `npm run benchmark`：**PASS**。9 组跨 FPS 动作基准测试全部通过，Overall MAE = **0.000**，吞吐处理速率达 40,000 ~ 260,000 FPS。
-- 视频 AI 推理模块：通过「🎞 本地视频评测」模式，直接读取本地 MP4 并在前端调用官方 MediaPipe 模型，绕过无摄像头依赖。
-- 移动端安全上下文检测：在 HTTP 非安全上下文下主动给出明确指引。
+| 命令 | 预期与测试目标 | 实际结果 | 核心指标 / 证据摘要 |
+| :--- | :--- | :--- | :--- |
+| `npm run check` | 检查 6 个 ES 核心模块语法有效性 | **PASS** | 无任何语法、导入或引用错误 |
+| `npm test` | 执行全量单元测试（包含 R-002 数据隔离） | **PASS** | **26/26 项测试 100% 通过**，耗时 166ms |
+| `node scripts/smoke.mjs` | 本地服务路由、MIME、路径安全与假私钥拦截 | **PASS** | 假私钥 `dummy_probe_key.pem`、`key.pem` 请求返回 403/404，静态白名单生效 |
+| `npm run benchmark` | 9 组跨 FPS 采样率时序状态机稳定性 | **PASS** | 合成状态机闭环 MAE = 0.000，纯算法吞吐 > 50,000 FPS |
+| `python scripts/package.py` | 跨平台自动化测试、私钥扫描与 ZIP 打包 | **PASS** | 扫描 0 个私钥，成功打包含 37 个必要源文件的发布包 |
+| `python scripts/verify_package.py <zip>` | 发布包 SHA-256 清单一致性与结构校验 | **PASS** | 37 文件哈希校验 100% 匹配 |
 
-## 未执行 / 未验证（需现场或真机硬件）
+### 单测明细（26 项全部绿色通过）
+1. `2D angle geometry, invalid and degenerate landmarks` (0.88ms)
+2. `synthetic landmarks have measurable joint angles` (0.54ms)
+3. `low visibility and missing landmarks do not produce fake measurements` (0.10ms)
+4. `squat: counts 3 complete and flags one shallow in 4 synthetic cycles` (3.34ms)
+5. `curl: counts 3 complete and flags one shallow in 4 synthetic cycles` (1.52ms)
+6. `jumping_jack: counts 3 complete and flags one shallow in 4 synthetic cycles` (2.02ms)
+7. `squat: static pose never counts` (0.16ms)
+8. `squat: loss of pose interrupts rep` (0.10ms)
+9. `squat: long gap does not complete an unfinished rep` (0.09ms)
+10. `curl: static pose never counts` (0.13ms)
+11. `curl: loss of pose interrupts rep` (0.08ms)
+12. `curl: long gap does not complete an unfinished rep` (0.07ms)
+13. `jumping_jack: static pose and interrupted rep handling` (0.13ms)
+14. `timestamps must be increasing; invalid exercise rejected` (0.29ms)
+15. `simulated angle exercises have planned shallow cycles` (0.07ms)
+16. `side hysteresis prevents flickering when confidences are close` (0.13ms)
+17. `analyzer tracks depth progress and retains active side during rep` (0.10ms)
+18. `checkPostureFault detects excessive trunk forward lean in squat` (0.34ms)
+19. `checkPostureFault detects upper arm swinging during curl` (0.10ms)
+20. `checkPostureFault detects arm asymmetry in jumping jacks` (0.11ms)
+21. `analyzer supports difficulty presets and target rep goal achievement` (0.17ms)
+22. `session persistence is local, bounded, and clearable` (2.78ms)
+23. `corrupted and untrusted local records are ignored` (0.19ms)
+24. `advice depends on fatigue, incomplete reps, no reps and goal` (0.25ms)
+25. `session export generates valid CSV with BOM and JSON` (0.28ms)
+26. **`computeMaeStats strictly isolates real AI sessions from simulation data` (0.72ms，新增 R-002 物理隔离单测)**
 
-- **真机摄像头（Webcam）长期推流压测**：受限于容器/无图形环境，需在答辩演示笔记本或真机浏览器上点按允许摄像头。
-- **多人并发测试**：系统设计为客户端纯本地运行，不设服务端中心评测；若多人测试应分别使用独立手机/电脑。
+---
 
-## 本轮测试结论
+## 二、未执行 / 未验证项（必须明确标注，不得谎称通过）
 
-v0.2.0 版本已完全实现 M0 到 M3 全部核心功能与学术评测能力，所有单元测试、语法检查与基准套件均 100% 自动化通过。
+1. **真实真人动作识别准确率：未验证（NOT RUN）**。
+   - `npm run benchmark` 输出的 MAE = 0.000 仅代表确定性生物力学仿真序列下有限状态机与过滤器的闭环能力；
+   - 真人受试者在不同机位、光照、服装及真实 MediaPipe 波动下的 MAE 必须按照 `docs/EXPERIMENT_PROTOCOL.md` 规范由人工对照实测得出。
+2. **真机物理摄像头（Webcam）及浏览器端到端：未验证（BLOCKED）**。
+   - 开发与审查环境缺乏物理摄像头硬件及 GUI 桌面，未通过真实用户按键点击测试；真实摄像头需在答辩演示笔记本上走查。
+3. **真实断网离线加载 MediaPipe：未验证（保留至 P1 轮次 R-008）**。
+   - 目前模型文件支持本地缓存，但 ESM 运行时仍需首次加载网络资源或利用浏览器缓存。

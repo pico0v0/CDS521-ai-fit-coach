@@ -1,5 +1,5 @@
 import { EXERCISES, ExerciseAnalyzer, extractJointAngle, DIFFICULTY_PRESETS } from './exercise.js';
-import { loadSessions, saveSession, clearSessions, makeAdvice, exportSessionsCSV, exportSessionsJSON } from './store.js';
+import { loadSessions, saveSession, clearSessions, makeAdvice, exportSessionsCSV, exportSessionsJSON, computeMaeStats } from './store.js';
 import { createPoseLandmarker } from './pose.js';
 import { drawPose, drawIdle } from './draw.js';
 import { simulatePose } from './simulator.js';
@@ -115,17 +115,14 @@ function reportsPage() {
   const mean = sessions.length ? Math.round(totalCount/sessions.length) : 0;
   const chart = sessions.slice(0, 8).reverse();
   const max = Math.max(...chart.map(s=>s.count), 1);
-  const evaluated = sessions.filter(s => Number.isFinite(s.absError));
-  const maeVal = evaluated.length
-    ? (evaluated.reduce((sum, s) => sum + s.absError, 0) / evaluated.length).toFixed(2)
-    : null;
+  const maeStats = computeMaeStats(sessions);
 
   return `<div class="page"><div class="page-heading"><div><div class="eyebrow">SESSION REVIEW / LOCAL RECORDS</div><h2>训练报告 <span>PROGRESS TRACKER</span></h2><p>只在浏览器本地保存次数等统计信息，不保存摄像头视频。</p></div><button class="btn btn-secondary" data-action="open-training">+ 新训练</button></div>
-    <section class="report-metrics"><article><span>训练记录</span><strong>${sessions.length}</strong><small>SESSIONS</small></article><article><span>累计有效次数</span><strong>${totalCount}</strong><small>REPS</small></article><article><span>平均每次记录</span><strong>${mean}</strong><small>REPS / SESSION</small></article>${maeVal !== null ? `<article><span>实验对照 MAE</span><strong style="color:${Number(maeVal)<=0.5?'#86efac':'#fde047'}">${maeVal}</strong><small>ABS ERROR (N=${evaluated.length})</small></article>` : ''}</section>
+    <section class="report-metrics"><article><span>训练记录</span><strong>${sessions.length}</strong><small>SESSIONS</small></article><article><span>累计有效次数</span><strong>${totalCount}</strong><small>REPS</small></article><article><span>平均每次记录</span><strong>${mean}</strong><small>REPS / SESSION</small></article><article><span>真实 AI 对照 MAE</span>${maeStats.realMae !== null ? `<strong style="color:${maeStats.realMae<=0.5?'#86efac':'#fde047'}">${maeStats.realMae.toFixed(2)}</strong><small>REAL AI MAE (N=${maeStats.realCount})</small>` : `<strong style="font-size:12px;color:#94a3b8;line-height:2.4">暂无有效真人对照数据</strong><small>需真实AI实测 + 人工核验</small>`}</article>${maeStats.demoCount > 0 ? `<article><span>模拟算法回归误差</span><strong style="color:#cbd5e1">${maeStats.demoMae.toFixed(2)}</strong><small>SIMULATION (N=${maeStats.demoCount}, 非AI)</small></article>` : ''}</section>
     <div class="report-grid"><section class="panel"><div class="panel-heading"><h3>最近一次训练</h3><span>LATEST SESSION</span></div>
-      ${current ? `<div class="latest-title">${escapeText(EXERCISES[current.exercise]?.name || current.exercise)} <span class="report-chip ${current.mode==='demo'?'demo-chip':(current.mode==='video'?'video-chip':'')}">${current.mode==='demo'?'模拟数据':(current.mode==='video'?'本地视频AI':(current.trackedFrames?'真实摄像头':'摄像头（未跟踪到人体）'))}</span></div><div class="latest-date">${formatDate(current.startedAt)}</div><div class="session-numbers"><div><strong>${current.count}</strong><small>有效次数</small></div><div><strong>${current.partialCount}</strong><small>未达幅度</small></div><div><strong>${(current.faultCounts?.trunk_lean || 0) + (current.faultCounts?.arm_swing || 0) + (current.faultCounts?.arm_asymmetry || 0)}</strong><small>姿态提示</small></div>${Number.isFinite(current.manualCount) ? `<div><strong>${current.manualCount}</strong><small>人工基准</small></div><div><strong style="color:${current.absError===0?'#86efac':'#f59e0b'}">${current.absError}</strong><small>绝对误差</small></div>` : ''}<div><strong>${formatTime(current.durationSeconds)}</strong><small>训练时长</small></div></div><div class="advice-box"><span>✦ 个性化建议 · 规则模板</span><p>${escapeText(makeAdvice(current, current.goal || state.goal, current.fatigue || state.fatigue))}</p></div>` : `<div class="empty-state"><span>◎</span><h3>暂无训练记录</h3><p>进入训练页，开启真实摄像头或模拟演示，结束训练后会自动生成报告。</p><button class="btn btn-primary" data-action="open-training">立即开始 →</button></div>`}
+      ${current ? `<div class="latest-title">${escapeText(EXERCISES[current.exercise]?.name || current.exercise)} <span class="report-chip ${current.mode==='demo'?'demo-chip':(current.mode==='video'?'video-chip':'')}">${current.mode==='demo'?'模拟数据':(current.mode==='video'?'本地视频AI':(current.trackedFrames?'真实摄像头':'摄像头（未跟踪到人体）'))}</span></div><div class="latest-date">${formatDate(current.startedAt)}</div><div class="session-numbers"><div><strong>${current.count}</strong><small>有效次数</small></div><div><strong>${current.partialCount}</strong><small>未达幅度</small></div><div><strong>${(current.faultCounts?.trunk_lean || 0) + (current.faultCounts?.arm_swing || 0) + (current.faultCounts?.arm_asymmetry || 0)}</strong><small>姿态提示</small></div>${Number.isFinite(current.manualCount) ? `<div><strong>${current.manualCount}</strong><small>人工核验</small></div><div><strong style="color:${current.absError===0?'#86efac':'#f59e0b'}">${current.absError}</strong><small>绝对误差</small></div>` : ''}<div><strong>${formatTime(current.durationSeconds)}</strong><small>训练时长</small></div></div><div class="advice-box"><span>✦ 个性化建议 · 规则模板</span><p>${escapeText(makeAdvice(current, current.goal || state.goal, current.fatigue || state.fatigue))}</p></div>` : `<div class="empty-state"><span>◎</span><h3>暂无训练记录</h3><p>进入训练页，开启真实摄像头或模拟演示，结束训练后会自动生成报告。</p><button class="btn btn-primary" data-action="open-training">立即开始 →</button></div>`}
     </section><section class="panel"><div class="panel-heading"><h3>最近训练次数</h3><span>LAST 8 SESSIONS</span></div><div class="chart-wrap">${chart.length ? `<div class="bar-chart">${chart.map((s,i)=>`<div class="bar-cell"><span>${s.count}</span><div class="bar ${s.mode==='demo'?'bar-sim':(s.mode==='video'?'bar-video':'')}" style="height:${Math.max(5, Math.round(s.count/max*185))}px"></div><small>${i+1}</small></div>`).join('')}</div><div class="legend"><span class="legend-dot"></span>实时AI <span class="legend-dot dot-video"></span>视频AI <span class="legend-dot sim"></span>模拟</div>` : `<div class="empty-chart">暂无数据，请先完成训练</div>`}</div></section></div>
-    <section class="panel history-panel"><div class="panel-heading"><h3>历史记录</h3><div class="history-actions"><button class="btn btn-sm btn-outline" data-action="export-csv" ${sessions.length?'':'disabled'} title="导出用于 Excel 对照分析的 CSV 表格">⤓ 导出 CSV</button><button class="btn btn-sm btn-outline" data-action="export-json" ${sessions.length?'':'disabled'} title="导出完整 JSON 数据">⤓ 导出 JSON</button><button class="text-danger" data-action="clear-history" ${sessions.length?'':'disabled'}>清空记录</button></div></div><div class="history-table"><div class="history-head"><span>训练日期</span><span>动作</span><span>模式</span><span>系统有效</span><span>人工/误差</span><span>用时</span></div>${sessions.length ? sessions.map(s=>`<div class="history-row"><span>${formatDate(s.startedAt)}</span><span>${escapeText(EXERCISES[s.exercise]?.name || s.exercise)}</span><span>${s.mode==='demo'?'模拟':(s.mode==='video'?'视频AI':'实时')}</span><strong>${s.count}</strong><span>${Number.isFinite(s.manualCount) ? `${s.manualCount} / 误${s.absError}` : '--'}</span><span>${formatTime(s.durationSeconds)}</span></div>`).join('') : '<p class="empty-records">暂无记录</p>'}</div></section>
+    <section class="panel history-panel"><div class="panel-heading"><h3>历史记录</h3><div class="history-actions"><button class="btn btn-sm btn-outline" data-action="export-csv" ${sessions.length?'':'disabled'} title="导出用于 Excel 对照分析的 CSV 表格">⤓ 导出 CSV</button><button class="btn btn-sm btn-outline" data-action="export-json" ${sessions.length?'':'disabled'} title="导出完整 JSON 数据">⤓ 导出 JSON</button><button class="text-danger" data-action="clear-history" ${sessions.length?'':'disabled'}>清空记录</button></div></div><div class="history-table"><div class="history-head"><span>训练日期</span><span>动作</span><span>模式</span><span>系统有效</span><span>人工/误差</span><span>用时</span></div>${sessions.length ? sessions.map(s=>`<div class="history-row"><span>${formatDate(s.startedAt)}</span><span>${escapeText(EXERCISES[s.exercise]?.name || s.exercise)}</span><span>${s.mode==='demo'?'模拟':(s.mode==='video'?'视频AI':'实时')}</span><strong>${s.count}</strong><span>${Number.isFinite(s.manualCount) ? `${s.manualCount} / 误${s.absError}${s.mode==='demo'?'(模)':''}` : '--'}</span><span>${formatTime(s.durationSeconds)}</span></div>`).join('') : '<p class="empty-records">暂无记录</p>'}</div></section>
     <div class="subtle-warning">注意：模拟模式生成的记录会明确标注为「模拟」，不可用作真实 AI 识别准确率实验数据。</div>
   </div>`;
 }
@@ -471,7 +468,7 @@ function finishSession(manualCount = null) {
   }
   const seconds = activeSeconds();
   const snapshot = state.analyzer.snapshot();
-  const hasManual = Number.isFinite(manualCount);
+  const hasManual = Number.isInteger(manualCount) && manualCount >= 0;
   const record = {
     id: `${state.startWall}-${Math.round(Math.random()*100000)}`,
     startedAt: new Date(state.startWall).toISOString(),
@@ -515,9 +512,15 @@ document.addEventListener('click', async event => {
     case 'end': {
       let manualCount = null;
       try {
-        const input = window.prompt('本次训练结束。如需记录课程对照实验，请输入人工观察次数（留空则不记录）：', '');
-        if (input && input.trim() !== '' && Number.isFinite(Number(input.trim()))) {
-          manualCount = Math.max(0, parseInt(input.trim(), 10));
+        const input = window.prompt('本次训练结束。如需记录课程对照实验，请输入人工核验的实际有效达标次数（必须为非负整数，留空或取消则不记录）：', '');
+        if (input !== null && input.trim() !== '') {
+          const trimmed = input.trim();
+          if (/^\d+$/.test(trimmed)) {
+            const val = parseInt(trimmed, 10);
+            if (val >= 0 && val <= 10000) {
+              manualCount = val;
+            }
+          }
         }
       } catch {}
       finishSession(manualCount);

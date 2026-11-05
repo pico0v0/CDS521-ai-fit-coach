@@ -1,5 +1,24 @@
 # CHANGELOG（每轮 AI 必须追加）
 
+## v0.2.1-r1 — 第一轮 P0 缺陷修复：HTTPS 凭据隔离与真实 MAE 统计物理隔离（2026-11-05）
+
+### 已修复问题（P0）
+- **R-001 [P0/安全] HTTPS 私钥与敏感凭据静态服务硬拦截及打包排除**：
+  - `server.mjs`：增加 `FORBIDDEN_EXTENSIONS`（显式阻断 `.pem`, `.key`, `.crt`, `.cert`, `.p12`, `.pfx`, `.pkcs8`, `.env` 等）与路径敏感词过滤，严格实行静态资源白名单；
+  - 默认 TLS 证书路径从根目录迁移至项目外部 `../ai-fit-coach-tls/`，支持 `TLS_KEY_PATH` 与 `TLS_CERT_PATH` 环境变量；
+  - `scripts/package.py`：增加密钥后缀与私钥特征码主动扫描拦截，工作区一旦检出私钥立即终止打包；`audit` 目录加入排除列表；
+  - `scripts/smoke.mjs`：自动化创建伪造私钥 `dummy_probe_key.pem` 并断言 HTTP GET/HEAD 返回 403/404。
+- **R-002 [P0/学术数据] 真实 AI MAE 与模拟演示数据物理隔离**：
+  - `src/store.js`：实现 `computeMaeStats` 纯函数，`realMae` 仅纳入 `mode ∈ {camera, video}`、`trackedFrames >= 5` 且包含合法非负整数人工真值的有效会话；`demo` 数据完全独立统计；
+  - `src/app.js`：重构训练报告页 `reportsPage()`，无真实数据时明确展示「暂无有效真人对照数据」，严禁伪造假 0.00；模拟数据在侧边单独标注展示；
+  - `src/app.js`：训练结束人工真值录入弹窗强化正则 `/^\d+$/` 校验，拦截浮点数、负数与科学计数法；
+  - `tests/store.test.mjs`：新增单测断言 10 条模拟零误差会话下 `realMae` 保持为 `null`，且混合输入时真实 MAE 分毫不受污染。
+- **R-007 [P1/兼容性] 跨平台打包命令单字符串执行**：
+  - `scripts/package.py` 中将命令数组转为单字符串执行，解决 Linux/macOS POSIX 环境下 `shell=True` 丢失子参数问题。
+
+### 未处理问题（保留下一轮）
+- 依据第一轮审查指令，P1/P2 问题（R-003~R-006、R-008~R-015）按计划保留在下一轮（P1 轮次）集中修复，详见 `handoff/KNOWN_ISSUES.md`。
+
 ## v0.2.0 — 实验对照真值录入、自动 MAE 汇算与学术实验规范指南（完成 M3）（2026-11-05）
 
 ### 已新增与改进
