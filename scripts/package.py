@@ -49,7 +49,7 @@ def main():
     version=package['version']
     if not version or not all(c.isdigit() or c=='.' for c in version):
         raise SystemExit('Invalid package.json version')
-    logs=[run(['npm','run','check']),run(['npm','test']),run(['node','scripts/smoke.mjs'])]
+    logs=[run(['npm','run','check']),run(['npm','test']),run(['node','scripts/smoke.mjs']),run(['node','scripts/benchmark.mjs'])]
     records={}
     for path in BASE.rglob('*'):
         if not path.is_file(): continue

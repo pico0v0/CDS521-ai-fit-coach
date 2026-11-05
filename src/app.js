@@ -267,6 +267,7 @@ function onResult(landmarks, time) {
     }
   } else if (!joint) inform('暂时无法可靠看到目标关节，请保持入镜并调整拍摄位置。', 'warning');
   else if (!state.warningLogs.length) inform('已识别动作轮廓。保持平稳节奏，完成一次完整往返动作。', 'info');
+  return snapshot;
 }
 function renderFrame(now) {
   if (!state.running || state.view !== 'training') return;
@@ -294,11 +295,13 @@ function renderFrame(now) {
   if (state.mode === 'demo') {
     const elapsed = now - state.startPerf - state.pauseDuration;
     const landmarks = simulatePose(elapsed, state.exercise, { simulateFault: true });
-    onResult(landmarks, now);
+    const snapshot = onResult(landmarks, now);
     drawPose(canvas, landmarks, {
       width: 960, height: 540,
       label: 'SYNTHETIC POSE · NOT AI',
-      highlightJoints: state.currentHighlightJoints
+      highlightJoints: state.currentHighlightJoints,
+      angle: snapshot?.angle ?? null,
+      depthProgress: snapshot?.progress ?? 0
     });
   } else if ((state.mode === 'camera' || state.mode === 'video') && state.detector) {
     const video = document.querySelector('#liveVideo');
@@ -310,11 +313,13 @@ function renderFrame(now) {
       const result = state.detector.detectForVideo(video, now);
       state.latencyMs = Math.round(performance.now() - t0);
       const landmarks = result.landmarks?.[0] || null;
-      onResult(landmarks, now);
+      const snapshot = onResult(landmarks, now);
       drawPose(canvas, landmarks, {
         width: video.videoWidth,
         height: video.videoHeight,
-        highlightJoints: state.currentHighlightJoints
+        highlightJoints: state.currentHighlightJoints,
+        angle: snapshot?.angle ?? null,
+        depthProgress: snapshot?.progress ?? 0
       });
     } catch (error) {
       inform(`姿态分析暂时失败：${String(error.message || error).slice(0,120)}`, 'warning');

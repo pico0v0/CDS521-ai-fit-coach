@@ -5,7 +5,7 @@ const EDGES = [
 ];
 export function drawPose(canvas, landmarks, options = {}) {
   if (!canvas) return;
-  const { width = 960, height = 540, active = true, label = '', highlightJoints = null } = options;
+  const { width = 960, height = 540, active = true, label = '', highlightJoints = null, angle = null, depthProgress = 0 } = options;
   if (canvas.width !== width) canvas.width = width;
   if (canvas.height !== height) canvas.height = height;
   const ctx = canvas.getContext('2d');
@@ -58,6 +58,34 @@ export function drawPose(canvas, landmarks, options = {}) {
       ctx.strokeStyle = 'rgba(254, 240, 138, 0.4)';
       ctx.lineWidth = 2;
       ctx.stroke();
+    }
+  }
+
+  // 3. Draw HUD Angle Badge near target apex joint
+  if (angle !== null && Number.isFinite(angle) && highlightJoints?.length) {
+    const apexId = highlightJoints.length === 3 ? highlightJoints[1]
+      : (highlightJoints.includes(25) ? 25 : (highlightJoints.includes(26) ? 26 : (highlightJoints.includes(13) ? 13 : (highlightJoints.includes(14) ? 14 : highlightJoints[0]))));
+    const apex = landmarks[apexId];
+    if (apex && (apex.visibility ?? 1) >= 0.4) {
+      const bx = Math.min(width - 65, Math.max(10, apex.x * width + 14));
+      const by = Math.min(height - 30, Math.max(25, apex.y * height - 12));
+      const strokeCol = depthProgress >= 100 ? '#10b981' : (depthProgress > 25 ? '#f59e0b' : '#ca8a04');
+
+      ctx.save();
+      ctx.fillStyle = 'rgba(12, 27, 40, 0.82)';
+      ctx.strokeStyle = strokeCol;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.roundRect ? ctx.roundRect(bx, by, 52, 22, 6) : ctx.rect(bx, by, 52, 22);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.font = 'bold 12px sans-serif';
+      ctx.fillStyle = depthProgress >= 100 ? '#86efac' : '#ffffff';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`${angle}°`, bx + 26, by + 11);
+      ctx.restore();
     }
   }
 
