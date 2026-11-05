@@ -1,8 +1,19 @@
 import { EXERCISES, ExerciseAnalyzer, extractJointAngle, DIFFICULTY_PRESETS } from './exercise.js';
-import { loadSessions, saveSession, clearSessions, makeAdvice } from './store.js';
+import { loadSessions, saveSession, clearSessions, makeAdvice, exportSessionsCSV, exportSessionsJSON } from './store.js';
 import { createPoseLandmarker } from './pose.js';
 import { drawPose, drawIdle } from './draw.js';
 import { simulatePose } from './simulator.js';
+
+function downloadFile(content, filename, type) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 const root = document.querySelector('#app');
 const state = {
@@ -88,7 +99,7 @@ function trainingPage() {
       <div class="instruction"><span class="info-dot">i</span><div><strong>机位建议</strong><p id="cameraGuidance">${ex.guidance}</p></div></div>
     </section><aside class="analysis-column">
       <div class="module-heading"><div><span class="section-index">02</span><strong>动作设置与分析</strong></div><span class="mini-sub">REAL-TIME</span></div>
-      <div class="settings-card"><div class="input-label">选择动作 <span>EXERCISE</span></div><div class="exercise-switch"><button type="button" data-exercise="squat" class="exercise-btn ${state.exercise==='squat'?'selected':''}">深蹲 <small>SQUAT</small></button><button type="button" data-exercise="curl" class="exercise-btn ${state.exercise==='curl'?'selected':''}">弯举 <small>CURL</small></button></div><div class="select-grid"><label>训练目标<select id="goalInput"><option value="habit" ${state.goal==='habit'?'selected':''}>培养习惯</option><option value="strength" ${state.goal==='strength'?'selected':''}>力量训练</option><option value="endurance" ${state.goal==='endurance'?'selected':''}>提高耐力</option></select></label><label>目前疲劳<select id="fatigueInput"><option value="normal" ${state.fatigue==='normal'?'selected':''}>一般</option><option value="low" ${state.fatigue==='low'?'selected':''}>较低</option><option value="high" ${state.fatigue==='high'?'selected':''}>较高</option></select></label></div><div class="select-grid" style="margin-top:10px"><label>动作难度<select id="difficultySelect"><option value="beginner" ${state.difficulty==='beginner'?'selected':''}>初学 (幅度阈值较低)</option><option value="standard" ${state.difficulty==='standard'?'selected':''}>标准 (推荐)</option><option value="advanced" ${state.difficulty==='advanced'?'selected':''}>进阶 (更高幅度要求)</option></select></label><label>目标次数<select id="targetRepsSelect"><option value="0" ${state.targetReps===0?'selected':''}>自由练习 (不限)</option><option value="5" ${state.targetReps===5?'selected':''}>5 次 (体验组)</option><option value="10" ${state.targetReps===10?'selected':''}>10 次 (标准组)</option><option value="15" ${state.targetReps===15?'selected':''}>15 次 (耐力组)</option></select></label></div><div class="minor-options"><label class="voice-option"><input type="checkbox" id="voiceToggle" ${state.voice?'checked':''}> <span>语音反馈</span></label><label>摄像头 <select id="facingSelect"><option value="user" ${state.facing==='user'?'selected':''}>前置</option><option value="environment" ${state.facing==='environment'?'selected':''}>后置</option></select></label></div></div>
+      <div class="settings-card"><div class="input-label">选择动作 <span>EXERCISE</span></div><div class="exercise-switch"><button type="button" data-exercise="squat" class="exercise-btn ${state.exercise==='squat'?'selected':''}">深蹲 <small>SQUAT</small></button><button type="button" data-exercise="curl" class="exercise-btn ${state.exercise==='curl'?'selected':''}">弯举 <small>CURL</small></button></div><div class="select-grid"><label>训练目标<select id="goalInput"><option value="habit" ${state.goal==='habit'?'selected':''}>培养习惯</option><option value="strength" ${state.goal==='strength'?'selected':''}>力量训练</option><option value="endurance" ${state.goal==='endurance'?'selected':''}>提高耐力</option></select></label><label>目前疲劳<select id="fatigueInput"><option value="normal" ${state.fatigue==='normal'?'selected':''}>一般</option><option value="low" ${state.fatigue==='low'?'selected':''}>较低</option><option value="high" ${state.fatigue==='high'?'selected':''}>较高</option></select></label></div><div class="select-grid" style="margin-top:10px"><label>动作难度<select id="difficultySelect"><option value="beginner" ${state.difficulty==='beginner'?'selected':''}>初学 (幅度阈值较低)</option><option value="standard" ${state.difficulty==='standard'?'selected':''}>标准 (推荐)</option><option value="advanced" ${state.difficulty==='advanced'?'selected':''}>进阶 (更高幅度要求)</option></select></label><label>目标次数<select id="targetRepsSelect"><option value="0" ${state.targetReps===0?'selected':''}>自由练习 (不限)</option><option value="5" ${state.targetReps===5?'selected':''}>5 次 (体验组)</option><option value="10" ${state.targetReps===10?'selected':''}>10 次 (标准组)</option><option value="15" ${state.targetReps===15?'selected':''}>15 次 (耐力组)</option></select></label></div><div class="minor-options"><label class="voice-option"><input type="checkbox" id="voiceToggle" ${state.voice?'checked':''}> <span>语音反馈</span><button type="button" class="btn-text-test" data-action="test-voice" title="测试播报">试听 🔊</button></label><label>摄像头 <select id="facingSelect"><option value="user" ${state.facing==='user'?'selected':''}>前置</option><option value="environment" ${state.facing==='environment'?'selected':''}>后置</option></select></label></div></div>
       <div class="stat-large"><div><span class="stat-label">有效次数</span><div class="big-number" id="repsCount">00</div></div><div class="stat-side"><div><span>进行时间</span><strong id="clock">00:00</strong></div><div><span>未达演示幅度</span><strong id="partialCount">00</strong></div></div></div>
       <div class="stat-row"><div class="stat-small"><span>关节角度 <small>2D EST.</small></span><strong id="angleStat">-- <small>°</small></strong></div><div class="stat-small"><span>动作状态</span><strong id="phaseStat" class="phase-text">等待站稳</strong></div></div>
       <div class="depth-card"><div class="depth-head"><span>动作深度完成度</span><strong id="depthPercent">0%</strong></div><div class="depth-meter-track"><div class="depth-meter-bar" id="depthBar"></div></div><div class="depth-labels"><span>起始准备 (${ex.extended}°)</span><span id="activeSideBadge" class="side-badge">待识别肢体</span><span id="targetDepthLabel">达标幅度 (${state.analyzer.exercise.full}°)</span></div></div>
@@ -109,7 +120,7 @@ function reportsPage() {
     <div class="report-grid"><section class="panel"><div class="panel-heading"><h3>最近一次训练</h3><span>LATEST SESSION</span></div>
       ${current ? `<div class="latest-title">${escapeText(EXERCISES[current.exercise]?.name || current.exercise)} <span class="report-chip ${current.mode==='demo'?'demo-chip':''}">${current.mode==='demo'?'模拟数据':current.trackedFrames?'真实摄像头':'摄像头（未跟踪到人体）'}</span></div><div class="latest-date">${formatDate(current.startedAt)}</div><div class="session-numbers"><div><strong>${current.count}</strong><small>有效次数</small></div><div><strong>${current.partialCount}</strong><small>未达幅度</small></div><div><strong>${(current.faultCounts?.trunk_lean || 0) + (current.faultCounts?.arm_swing || 0)}</strong><small>姿态提示</small></div><div><strong>${formatTime(current.durationSeconds)}</strong><small>训练时长</small></div></div><div class="advice-box"><span>✦ 个性化建议 · 规则模板</span><p>${escapeText(makeAdvice(current, current.goal || state.goal, current.fatigue || state.fatigue))}</p></div>` : `<div class="empty-state"><span>◎</span><h3>暂无训练记录</h3><p>进入训练页，开启真实摄像头或模拟演示，结束训练后会自动生成报告。</p><button class="btn btn-primary" data-action="open-training">立即开始 →</button></div>`}
     </section><section class="panel"><div class="panel-heading"><h3>最近训练次数</h3><span>LAST 8 SESSIONS</span></div><div class="chart-wrap">${chart.length ? `<div class="bar-chart">${chart.map((s,i)=>`<div class="bar-cell"><span>${s.count}</span><div class="bar ${s.mode==='demo'?'bar-sim':''}" style="height:${Math.max(5, Math.round(s.count/max*185))}px"></div><small>${i+1}</small></div>`).join('')}</div><div class="legend"><span class="legend-dot"></span>真实 <span class="legend-dot sim"></span>模拟</div>` : `<div class="empty-chart">暂无数据，请先完成训练</div>`}</div></section></div>
-    <section class="panel history-panel"><div class="panel-heading"><h3>历史记录</h3><button class="text-danger" data-action="clear-history" ${sessions.length?'':'disabled'}>清空本机记录</button></div><div class="history-table"><div class="history-head"><span>训练日期</span><span>动作</span><span>模式</span><span>有效次数</span><span>用时</span></div>${sessions.length ? sessions.map(s=>`<div class="history-row"><span>${formatDate(s.startedAt)}</span><span>${escapeText(EXERCISES[s.exercise]?.name || s.exercise)}</span><span>${s.mode==='demo'?'模拟':'真实'}</span><strong>${s.count}</strong><span>${formatTime(s.durationSeconds)}</span></div>`).join('') : '<p class="empty-records">暂无记录</p>'}</div></section>
+    <section class="panel history-panel"><div class="panel-heading"><h3>历史记录</h3><div class="history-actions"><button class="btn btn-sm btn-outline" data-action="export-csv" ${sessions.length?'':'disabled'} title="导出用于 Excel 对照分析的 CSV 表格">⤓ 导出 CSV</button><button class="btn btn-sm btn-outline" data-action="export-json" ${sessions.length?'':'disabled'} title="导出完整 JSON 数据">⤓ 导出 JSON</button><button class="text-danger" data-action="clear-history" ${sessions.length?'':'disabled'}>清空记录</button></div></div><div class="history-table"><div class="history-head"><span>训练日期</span><span>动作</span><span>模式</span><span>有效次数</span><span>用时</span></div>${sessions.length ? sessions.map(s=>`<div class="history-row"><span>${formatDate(s.startedAt)}</span><span>${escapeText(EXERCISES[s.exercise]?.name || s.exercise)}</span><span>${s.mode==='demo'?'模拟':'真实'}</span><strong>${s.count}</strong><span>${formatTime(s.durationSeconds)}</span></div>`).join('') : '<p class="empty-records">暂无记录</p>'}</div></section>
     <div class="subtle-warning">注意：模拟模式生成的记录会明确标注为「模拟」，不可用作真实 AI 识别准确率实验数据。</div>
   </div>`;
 }
@@ -375,6 +386,34 @@ document.addEventListener('click', async event => {
     case 'start-camera': await begin('camera'); break;
     case 'pause': togglePause(); break;
     case 'end': finishSession(); setView('reports'); break;
+    case 'test-voice': {
+      if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance('AI 健身教练语音助手已就绪，将在动作达标或姿态异常时即时提醒。');
+        u.lang = 'zh-CN'; u.rate = 1.05;
+        window.speechSynthesis.speak(u);
+        toast('正在播放测试语音…');
+      } else {
+        toast('当前浏览器环境不支持语音合成');
+      }
+      break;
+    }
+    case 'export-csv': {
+      const sessions = loadSessions();
+      if (!sessions.length) { toast('暂无记录可导出'); break; }
+      const csv = exportSessionsCSV(sessions);
+      downloadFile(csv, `aifit-sessions-${new Date().toISOString().slice(0,10)}.csv`, 'text/csv;charset=utf-8;');
+      toast('已导出实验数据 CSV 表格');
+      break;
+    }
+    case 'export-json': {
+      const sessions = loadSessions();
+      if (!sessions.length) { toast('暂无记录可导出'); break; }
+      const json = exportSessionsJSON(sessions);
+      downloadFile(json, `aifit-sessions-${new Date().toISOString().slice(0,10)}.json`, 'application/json');
+      toast('已导出实验数据 JSON');
+      break;
+    }
     case 'clear-history':
       if (window.confirm('确定清空本机所有训练记录吗？这个操作不能撤销。')) {
         clearSessions(); state.lastSession=null; renderPage(); toast('本机记录已清空');

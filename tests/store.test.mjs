@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { loadSessions, saveSession, clearSessions, makeAdvice } from '../src/store.js';
+import { loadSessions, saveSession, clearSessions, makeAdvice, exportSessionsCSV, exportSessionsJSON } from '../src/store.js';
 
 function memoryStorage() {
   const map=new Map();
@@ -32,4 +32,17 @@ test('advice depends on fatigue, incomplete reps, no reps and goal',()=>{
   assert.match(makeAdvice(record,'strength','low'),/稳定/);
   assert.match(makeAdvice({...record,count:4,faultCounts:{trunk_lean:2}},'habit','normal'),/躯干前倾/);
   assert.match(makeAdvice({...record,count:4,faultCounts:{arm_swing:1}},'habit','normal'),/借力/);
+});
+
+test('session export generates valid CSV with BOM and JSON', () => {
+  const sample = [{ ...record, count: 12, faultCounts: { trunk_lean: 1, arm_swing: 0 } }];
+  const csv = exportSessionsCSV(sample);
+  assert.ok(csv.startsWith('\uFEFF'));
+  assert.match(csv, /深蹲/);
+  assert.match(csv, /"12"/);
+
+  const jsonStr = exportSessionsJSON(sample);
+  const parsed = JSON.parse(jsonStr);
+  assert.equal(parsed[0].count, 12);
+  assert.equal(parsed[0].faultCounts.trunk_lean, 1);
 });

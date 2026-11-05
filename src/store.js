@@ -41,3 +41,28 @@ export function makeAdvice(record, goal, fatigue) {
   const faultSuffix = faultNotes.length ? `【姿态优化建议】${faultNotes.join('；')}。` : '';
   return `本次记录 ${record.count} 次完整动作。建议下次继续${goals[goal] || goals.habit}；可维持相近训练量，根据实际感受逐步调整。${faultSuffix}视频检测并非专业动作诊断。`;
 }
+
+export function exportSessionsCSV(sessions) {
+  const headers = ['ID', '训练时间', '动作名称', '动作代码', '运行模式', '有效次数', '未达幅度次数', '躯干前倾次数', '大臂借力次数', '训练时长(秒)', '训练目标', '主观疲劳'];
+  const rows = (sessions || []).map(s => [
+    s.id,
+    s.startedAt,
+    s.exercise === 'squat' ? '深蹲' : '哑铃弯举',
+    s.exercise,
+    s.mode === 'demo' ? '模拟演示' : '真实摄像头',
+    s.count,
+    s.partialCount || 0,
+    s.faultCounts?.trunk_lean || 0,
+    s.faultCounts?.arm_swing || 0,
+    s.durationSeconds,
+    s.goal || 'habit',
+    s.fatigue || 'normal'
+  ].map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','));
+
+  // Prepend UTF-8 BOM so Excel opens Chinese text properly
+  return '\uFEFF' + [headers.join(','), ...rows].join('\r\n');
+}
+
+export function exportSessionsJSON(sessions) {
+  return JSON.stringify(sessions || [], null, 2);
+}
