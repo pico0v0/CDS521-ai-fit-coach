@@ -30,3 +30,27 @@ npm run benchmark   # 算法状态机基准与 MAE 评测 (Overall MAE = 0.000)
 npm run smoke       # 本地静态服务路由与安全检查 (PASS)
 python scripts/package.py # 自动化打包为 release/ai-fit-coach-demo-v0.2.0-handoff.zip
 ```
+
+---
+
+## 🤖 可直接复制发给审查 AI 的提示词（Prompt for Reviewer AI）
+
+```markdown
+请你扮演资深计算机视觉与前端工程架构师，审查这份课程项目代码包（AI Fit Coach v0.2.0）。
+
+【项目定位】
+这是一个面向大学计算机视觉/AI 基础课程 20 分钟展示的零依赖原生 Web 应用（Zero-build ES Modules）。核心功能包括：MediaPipe Pose Landmarker 骨架提取、屈曲与展角双向时序有限状态机动作计数（深蹲、哑铃弯举、开合跳）、姿态异常诊断、人工真值比对与 MAE 误差自动汇算。
+
+【重点审查维度】
+1. 真实 AI 与模拟模式的边界清晰度：
+   - 核查 `src/pose.js` 与 `src/simulator.js`，确认二者严格解耦，系统是否诚实披露模拟数据不代表真机 AI 准确率。
+2. 生物力学几何计算与状态机健壮性：
+   - 检查 `src/exercise.js` 中的 2D 关节角度计算、EMA 平滑滤波、侧别迟滞滤波（Hysteresis Locking）以及双向状态机（bend/expand），评估是否存在死循环、抖动误计或跳帧崩溃风险。
+3. 真实视频推理与数据闭环：
+   - 检查 `src/app.js` 与 `src/store.js` 中的本地视频逐帧评测、人工真值录入（manualCount）及 MAE 绝对误差汇算，验证数据流与 CSV（带 UTF-8 BOM）导出逻辑。
+4. 架构与合规边界：
+   - 确认项目严格保持零 npm 构建依赖；
+   - 确认无过度医疗宣称（如疾病诊断、损伤预测），符合课程伦理规范。
+
+请根据 `handoff/`、`docs/` 及 `src/` 中的源码，指出潜在代码异味（Code Smells）、边界异常风险以及改进建议。
+```
