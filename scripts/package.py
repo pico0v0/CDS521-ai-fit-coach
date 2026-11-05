@@ -2,6 +2,7 @@
 """Run required automated checks and create a reproducible source handoff ZIP.
 
 Each included file gets a SHA256 entry in handoff/FILE_MANIFEST.sha256.
+Enforces strict secret scanning across all files and rejects symlinks.
 Run from any working directory: python scripts/package.py.
 """
 from pathlib import Path
@@ -11,6 +12,7 @@ import hashlib
 import json
 import zipfile
 import sys
+import re
 
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -22,6 +24,13 @@ PREFIX = 'ai-fit-coach-demo'
 EXCLUDE_PARTS = {'.git', 'node_modules', 'release', '__pycache__', '.cache', '.venv', 'venv', 'audit'}
 EXCLUDE_NAMES = {'.DS_Store', 'FILE_MANIFEST.sha256', 'AUTOMATED_CHECKS.txt'}
 SECRET_SUFFIXES = {'.pem', '.key', '.crt', '.cert', '.p12', '.pfx', '.pkcs8'}
+
+# Comprehensive regex matching PEM private key headers (RSA, EC, DSA, OPENSSH, ENCRYPTED, PGP, etc.)
+PEM_KEY_REGEX = re.compile(
+    rb'-----\s*BEGIN\s+(?:[A-Z0-9_\-\s]+)?(?:PRIVATE\s+KEY|KEY\s+BLOCK)[^-]*-----',
+    re.IGNORECASE
+)
+
 REQUIRED = [
     'README.md', 'README-demo.md', 'package.json', 'index.html', 'server.mjs',
     'src/app.js', 'src/pose.js', 'src/exercise.js', 'src/draw.js',
@@ -30,9 +39,42 @@ REQUIRED = [
     'docs/EXPERIMENT_PROTOCOL.md', 'docs/MOBILE_TESTING.md', 'docs/PRESENTATION_20MIN.md',
     'handoff/HANDOFF_RULES.md', 'handoff/CHANGELOG.md',
     'handoff/TEST_RESULTS.md', 'handoff/KNOWN_ISSUES.md', 'handoff/REVIEW_REQUEST.md',
+    'handoff/FIX_REPORT.md',
     'scripts/package.py', 'scripts/verify_package.py', 'scripts/download_models.py',
+    'scripts/test_package_security.py',
     'models/README.md',
 ]
+
+def scan_for_secrets(base_path):
+    """Pre-scan all proposed files for forbidden suffixes, symlinks, and PEM key headers."""
+    scanned_count = 0
+    for path in base_path.rglob('*'):
+        rel = path.relative_to(base_path)
+        if any(part in EXCLUDE_PARTS for part in rel.parts):
+            continue
+        if path.is_symlink():
+            print(f'SECURITY VIOLATION: Symbolic links are forbidden in release handoff: {rel}', file=sys.stderr)
+            raise SystemExit(1)
+        if not path.is_file():
+            continue
+        if path.name in EXCLUDE_NAMES or path.name.startswith('.env') or path.suffix in ('.log', '.pyc', '.zip'):
+            continue
+        if len(rel.parts) > 1 and rel.parts[0] == 'evidence':
+            continue
+
+        if path.suffix.lower() in SECRET_SUFFIXES:
+            print(f'SECURITY VIOLATION: Private key/cert file detected: {rel}', file=sys.stderr)
+            raise SystemExit(1)
+
+        raw = path.read_bytes()
+        # Scan ALL file formats (including Markdown, TXT, JS, JSON) for embedded PEM private key headers
+        posix_rel = rel.as_posix()
+        if posix_rel not in {'scripts/package.py', 'scripts/verify_package.py', 'scripts/test_package_security.py'}:
+            if PEM_KEY_REGEX.search(raw):
+                print(f'SECURITY VIOLATION: Embedded PEM private key header detected in {rel}', file=sys.stderr)
+                raise SystemExit(1)
+        scanned_count += 1
+    return scanned_count
 
 def run(cmd):
     # Support cross-platform execution (Windows cmd.exe / POSIX sh) with single command string
@@ -54,13 +96,19 @@ def main():
     if not version or not all(c.isdigit() or c == '.' for c in version):
         raise SystemExit('Invalid package.json version')
 
+    # Step 1: Fast fail pre-scan across all files
+    scanned = scan_for_secrets(BASE)
+
+    # Step 2: Run all required automated checks
     logs = [
         run(['npm', 'run', 'check']),
         run(['npm', 'test']),
         run(['node', 'scripts/smoke.mjs']),
-        run(['node', 'scripts/benchmark.mjs'])
+        run(['node', 'scripts/benchmark.mjs']),
+        run([sys.executable, 'scripts/test_package_security.py'])
     ]
 
+    # Step 3: Collect files for packaging
     records = {}
     for path in BASE.rglob('*'):
         if not path.is_file():
@@ -68,26 +116,12 @@ def main():
         rel = path.relative_to(BASE)
         if any(part in EXCLUDE_PARTS for part in rel.parts) or path.name in EXCLUDE_NAMES:
             continue
-
-        # R-001: Enforce zero secrets packaging
-        if path.suffix.lower() in SECRET_SUFFIXES:
-            print(f'SECURITY ERROR: Packaging aborted because private key/cert file detected: {rel}', file=sys.stderr)
-            raise SystemExit(1)
-
-        raw_bytes = path.read_bytes()
-        # Scan non-doc, non-packaging files for actual embedded PEM private key headers
-        if rel.as_posix() != 'scripts/package.py' and path.suffix.lower() not in {'.md', '.txt'}:
-            key_marker = b'-----BEGIN ' + b'PRIVATE KEY'
-            if key_marker in raw_bytes:
-                print(f'SECURITY ERROR: Secret private key content detected in {rel}. Packaging aborted!', file=sys.stderr)
-                raise SystemExit(1)
-
         if path.name.startswith('.env') or path.suffix in ('.log', '.pyc', '.zip'):
             continue
         if len(rel.parts) > 1 and rel.parts[0] == 'evidence':
-            continue  # private video/image not packaged
+            continue
 
-        records[rel.as_posix()] = raw_bytes
+        records[rel.as_posix()] = path.read_bytes()
 
     timestamp = dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
     records['handoff/AUTOMATED_CHECKS.txt'] = (f'Automatic checks run at: {timestamp}\n\n' + '\n\n'.join(logs)).encode('utf-8')
@@ -104,7 +138,7 @@ def main():
             info.compress_type = zipfile.ZIP_DEFLATED
             archive.writestr(info, body, compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
 
-    print(f'ZIP READY: {out} ({out.stat().st_size} bytes; {len(records)} files)')
+    print(f'ZIP READY: {out} ({out.stat().st_size} bytes; {len(records)} files, pre-scanned {scanned} files)')
     subprocess.run([sys.executable, str(BASE/'scripts/verify_package.py'), str(out)], check=True)
 
 if __name__ == '__main__':

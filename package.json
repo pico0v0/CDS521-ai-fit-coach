@@ -11,6 +11,7 @@
     "check": "node --check src/app.js && node --check src/exercise.js && node --check src/pose.js && node --check src/simulator.js && node --check src/store.js && node --check src/draw.js",
     "benchmark": "node scripts/benchmark.mjs",
     "smoke": "node scripts/smoke.mjs",
+    "test:security": "python scripts/test_package_security.py",
     "download-models": "python scripts/download_models.py",
     "package": "python scripts/package.py"
   },

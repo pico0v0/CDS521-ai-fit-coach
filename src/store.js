@@ -48,21 +48,31 @@ export function makeAdvice(record, goal, fatigue) {
 export function computeMaeStats(sessions = []) {
   const realEvaluated = (sessions || []).filter(s =>
     (s.mode === 'camera' || s.mode === 'video') &&
-    Number.isInteger(s.manualCount) && s.manualCount >= 0 &&
-    Number.isFinite(s.absError) &&
-    (s.trackedFrames || 0) >= 5
-  );
+    typeof s.count === 'number' && Number.isInteger(s.count) && s.count >= 0 &&
+    typeof s.manualCount === 'number' && Number.isInteger(s.manualCount) && s.manualCount >= 0 &&
+    typeof s.trackedFrames === 'number' && Number.isFinite(s.trackedFrames) && s.trackedFrames >= 5
+  ).map(s => ({
+    ...s,
+    // Strictly compute verified non-negative absolute error from verified count and manualCount
+    verifiedAbsError: Math.abs(s.count - s.manualCount)
+  }));
+
   const demoEvaluated = (sessions || []).filter(s =>
     s.mode === 'demo' &&
-    Number.isInteger(s.manualCount) && s.manualCount >= 0 &&
-    Number.isFinite(s.absError)
-  );
+    typeof s.count === 'number' && Number.isInteger(s.count) && s.count >= 0 &&
+    typeof s.manualCount === 'number' && Number.isInteger(s.manualCount) && s.manualCount >= 0
+  ).map(s => ({
+    ...s,
+    verifiedAbsError: Math.abs(s.count - s.manualCount)
+  }));
+
   const realMae = realEvaluated.length
-    ? Number((realEvaluated.reduce((sum, s) => sum + s.absError, 0) / realEvaluated.length).toFixed(2))
+    ? Number((realEvaluated.reduce((sum, s) => sum + s.verifiedAbsError, 0) / realEvaluated.length).toFixed(2))
     : null;
   const demoMae = demoEvaluated.length
-    ? Number((demoEvaluated.reduce((sum, s) => sum + s.absError, 0) / demoEvaluated.length).toFixed(2))
+    ? Number((demoEvaluated.reduce((sum, s) => sum + s.verifiedAbsError, 0) / demoEvaluated.length).toFixed(2))
     : null;
+
   return {
     realMae,
     realCount: realEvaluated.length,

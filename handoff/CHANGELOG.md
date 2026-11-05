@@ -1,5 +1,23 @@
 # CHANGELOG（每轮 AI 必须追加）
 
+## v0.2.1-r2 — 第二轮 P0 修复：静态服务双重白名单、符号链接防御与私钥全格式扫描（2026-11-05）
+
+### 已修复问题（P0 补强）
+- **R-001-A [P0/安全] 静态服务权限边界与符号链接越界阻断**：
+  - `server.mjs`：增加 `isAllowedClientPath` 严格客户端资源路径白名单（仅放行 `/`、`/index.html`、`/src/**`、`/models/**`），禁止通过 HTTP 访问 `/server.mjs`、`/package.json` 及根目录任意临时 JSON 文件；
+  - `server.mjs`：引入 `lstat()` 符号链接拦截与 `realpath()` 真实物理路径检验，请求目标为符号链接或解析越界时一律返回 403 Forbidden，杜绝跨目录读取敏感内容；
+  - `scripts/smoke.mjs`：新增攻击式用例（包含金丝雀 `private_notes.json` 及外部符号链接 `linked-public.js`），断言 GET 与 HEAD 均返回 403 且无内容泄露。
+- **R-001-B [P0/安全] 打包程序多格式 PEM 私钥头全量扫描与符号链接拒绝**：
+  - `scripts/package.py`：使用全面正则表达式匹配通用、RSA、EC、DSA、OPENSSH、ENCRYPTED 等全部 PEM 私钥头格式；
+  - `scripts/package.py`：取消跳过 Markdown 和 TXT 的限制，对所有拟入包文件进行逐字节扫描；打包前增加快速预检；
+  - `scripts/package.py`：遇到待打包符号链接一律立即拒绝退出，禁止带入外部引用内容；
+  - `scripts/verify_package.py`：独立解包校验层增加 PEM 私钥特征码与敏感扩展名扫描；
+  - `scripts/test_package_security.py`：自动化回归套件验证 Markdown 内私钥、JS 内 RSA 私钥、.pem 文件均可被成功阻断。
+- **R-002 [P0/学术数据] 数据一致性与非负绝对误差计算加固**：
+  - `src/store.js`：`computeMaeStats` 不再直接信任持久化存储的 `absError`，而是强制由非负整数 `count` 与 `manualCount` 在内存中自愈重算 `verifiedAbsError = Math.abs(count - manualCount)`；
+  - 增加对 `typeof s.trackedFrames === 'number'` 的严格校验，防止字符串或负误差污染看板；
+  - `tests/store.test.mjs`：增加对异常记录自动自愈纠偏的断言测试。
+
 ## v0.2.1-r1 — 第一轮 P0 缺陷修复：HTTPS 凭据隔离与真实 MAE 统计物理隔离（2026-11-05）
 
 ### 已修复问题（P0）

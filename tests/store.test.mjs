@@ -95,9 +95,19 @@ test('computeMaeStats strictly isolates real AI sessions from simulation data', 
   const invalid = [
     { ...record, id: 'bad-1', mode: 'camera', count: 10, manualCount: -5, absError: 15, trackedFrames: 100 },
     { ...record, id: 'bad-2', mode: 'video', count: 10, manualCount: 3.8, absError: 6.2, trackedFrames: 100 },
-    { ...record, id: 'bad-3', mode: 'camera', count: 10, manualCount: 10, absError: 0, trackedFrames: 2 } // < 5 frames
+    { ...record, id: 'bad-3', mode: 'camera', count: 10, manualCount: 10, absError: 0, trackedFrames: 2 }, // < 5 frames
+    { ...record, id: 'bad-4', mode: 'camera', count: 10, manualCount: 10, absError: 0, trackedFrames: '30' } // string rejected
   ];
   const resInvalid = computeMaeStats(invalid);
   assert.equal(resInvalid.realMae, null);
   assert.equal(resInvalid.realCount, 0);
+
+  // 5. Corrupted persisted absError is automatically self-healed by recalculation
+  const corrupted = [
+    { ...record, id: 'corrupt-1', mode: 'camera', count: 99, manualCount: 0, absError: 0, trackedFrames: 30 },
+    { ...record, id: 'corrupt-2', mode: 'video', count: 8, manualCount: 0, absError: -8, trackedFrames: 30 }
+  ];
+  const resCorrupted = computeMaeStats(corrupted);
+  assert.equal(resCorrupted.realMae, 53.50); // (99 + 8) / 2 = 53.50, strictly non-negative!
+  assert.equal(resCorrupted.realCount, 2);
 });

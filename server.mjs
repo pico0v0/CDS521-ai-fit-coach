@@ -1,8 +1,10 @@
-/** Dependency-free static server. Only serves files within the project root. Supports HTTP/HTTPS & LAN. */
+/** Dependency-free static server.
+ * Enforces strict client asset path whitelisting, symlink rejection, and HTTPS support.
+ */
 import { createServer as createHttpServer } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
 import { existsSync, readFileSync } from 'node:fs';
-import { readFile, stat } from 'node:fs/promises';
+import { readFile, stat, lstat, realpath } from 'node:fs/promises';
 import { resolve, extname, sep, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -13,53 +15,90 @@ const host = process.env.HOST || '127.0.0.1';
 const useHttps = process.env.HTTPS === 'true';
 
 const contentTypes = {
-  '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
-  '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml',
-  '.ico': 'image/x-icon', '.png': 'image/png', '.wasm': 'application/wasm',
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.png': 'image/png',
+  '.wasm': 'application/wasm',
   '.task': 'application/octet-stream',
-  '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime',
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm',
+  '.mov': 'video/quicktime',
   '.woff2': 'font/woff2'
 };
+
+/**
+ * R-001 Strict Client Asset Path Whitelist:
+ * Only public browser client assets are accessible via HTTP.
+ * Internal server files (/server.mjs, /package.json, root JSON/MD files) are strictly 403 Forbidden.
+ */
+function isAllowedClientPath(pathname) {
+  if (pathname === '/' || pathname === '/index.html' || pathname === '/favicon.ico') {
+    return true;
+  }
+  if (pathname.startsWith('/src/')) {
+    return true;
+  }
+  if (pathname.startsWith('/models/')) {
+    // Only serve actual models, binaries, wasm, and json metadata under models/
+    return true;
+  }
+  return false;
+}
 
 const FORBIDDEN_EXTENSIONS = new Set([
   '.pem', '.key', '.crt', '.cert', '.p12', '.pfx', '.pkcs8',
   '.env', '.log', '.py', '.pyc', '.md', '.map', '.sh', '.bat', '.ps1'
 ]);
 
-const FORBIDDEN_DIRS = new Set([
-  '.git', 'node_modules', 'handoff', 'tests', 'scripts', 'audit', 'release', 'docs'
-]);
-
 async function handleRequest(req, res) {
   try {
-    const pathname = decodeURIComponent(new URL(req.url || '/', 'http://localhost').pathname);
-    const relParts = pathname.split('/').filter(Boolean);
+    const parsedUrl = new URL(req.url || '/', 'http://localhost');
+    const pathname = decodeURIComponent(parsedUrl.pathname);
 
-    // Reject dot-files and protected directories
-    if (relParts.some(part => part.startsWith('.') || FORBIDDEN_DIRS.has(part.toLowerCase()))) {
+    // 1. Dual-check: Must match client asset path whitelist
+    if (!isAllowedClientPath(pathname)) {
+      res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Forbidden');
+      return;
+    }
+
+    // Reject path traversal tokens
+    const relParts = pathname.split('/').filter(Boolean);
+    if (relParts.some(part => part === '..' || part.startsWith('.'))) {
       res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
       res.end('Forbidden');
       return;
     }
 
     const filename = resolve(root, '.' + pathname, pathname.endsWith('/') ? 'index.html' : '');
+
+    // Path must stay inside project root
     if (!filename.startsWith(root + sep) && filename !== root) {
       res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
       res.end('Forbidden');
       return;
     }
 
-    const ext = extname(filename).toLowerCase();
-
-    // R-001: Explicitly forbid secret certificate/key files and sensitive names
-    if (FORBIDDEN_EXTENSIONS.has(ext) || /(?:^|[\\/])(?:key|cert|secret|probe|token|password|credential)/i.test(filename)) {
+    // 2. Reject sensitive keywords in filenames
+    if (/(?:^|[\\/])(?:key|cert|secret|probe|token|password|credential|private)/i.test(filename)) {
       res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
       res.end('Forbidden');
       return;
     }
 
-    // Strict extension whitelist: only serve defined web assets
+    // 3. Extension check
+    const ext = extname(filename).toLowerCase();
+    if (FORBIDDEN_EXTENSIONS.has(ext)) {
+      res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Forbidden');
+      return;
+    }
+
     const contentType = contentTypes[ext];
     if (!contentType) {
       res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -67,8 +106,35 @@ async function handleRequest(req, res) {
       return;
     }
 
-    const info = await stat(filename);
-    if (!info.isFile()) throw new Error('Not a file');
+    // 4. Strict Symlink & Realpath verification (R-001-A)
+    // Inspect with lstat first: reject if filename itself is a symlink
+    let linkStat;
+    try {
+      linkStat = await lstat(filename);
+    } catch {
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Not found');
+      return;
+    }
+
+    if (linkStat.isSymbolicLink()) {
+      res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Forbidden');
+      return;
+    }
+
+    // Resolve real physical path and verify it stays within web root
+    const realFilePath = await realpath(filename);
+    if (!realFilePath.startsWith(root + sep) && realFilePath !== root) {
+      res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Forbidden');
+      return;
+    }
+
+    const info = await stat(realFilePath);
+    if (!info.isFile()) {
+      throw new Error('Not a file');
+    }
 
     const headers = {
       'Content-Type': contentType,
@@ -83,7 +149,7 @@ async function handleRequest(req, res) {
       return;
     }
 
-    const data = await readFile(filename);
+    const data = await readFile(realFilePath);
     res.writeHead(200, headers);
     res.end(data);
   } catch {
@@ -92,7 +158,7 @@ async function handleRequest(req, res) {
   }
 }
 
-// R-001: TLS certificates MUST reside outside of the web-served root by default
+// R-001: TLS certificates MUST reside outside of web-served project root
 const keyPath = process.env.TLS_KEY_PATH
   ? resolve(process.env.TLS_KEY_PATH)
   : resolve(root, '..', 'ai-fit-coach-tls', 'key.pem');
