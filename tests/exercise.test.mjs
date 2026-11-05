@@ -248,6 +248,17 @@ test('R-005 regression: jumping jacks require bidirectional leg coordination acr
       if (mode === 'closed') for (const i of [25, 26, 27, 28, 29, 30]) p[i] = { ...standing[i] };
       if (mode === 'wide') for (const i of [25, 26, 27, 28, 29, 30]) p[i] = { ...spread[i] };
       if (mode === 'occluded') for (const i of [27, 28]) p[i].visibility = 0;
+      if (mode === 'hips_move_ankles_static') {
+        for (const i of [25, 26, 27, 28, 29, 30]) p[i] = { ...standing[i] };
+        const phase = t % 4700;
+        if (phase > 1450 && phase < 2050) {
+          p[23].x = 0.47; p[24].x = 0.53;
+        }
+      }
+      if (mode === 'legs_out_of_sync') {
+        const phase = t % 4700;
+        for (const i of [25, 26, 27, 28, 29, 30]) p[i] = { ...(phase >= 1450 && phase <= 1750 ? spread[i] : standing[i]) };
+      }
       const j = extractJointAngle(p, 'jumping_jack');
       a.update({ angle: j?.angle, visible: !!j, timestamp: t + 1, side: j?.side, landmarks: p });
     }
@@ -269,7 +280,17 @@ test('R-005 regression: jumping jacks require bidirectional leg coordination acr
   assert.equal(occludedRes.count, 0, 'Legs occluded must not be defaulted to complete jumping jacks');
   assert.equal(occludedRes.partial, 4);
 
-  // 4. Normal synchronized jumping jacks: 3 complete reps, 1 planned shallow rep
+  // 4. Ankles static, hips move (artificial ratio jump without ankle spread) -> count must be 0
+  const hipsRes = testJumpingJackScenario('hips_move_ankles_static');
+  assert.equal(hipsRes.count, 0, 'Ankles static with only hip narrowing must not count as jumping jacks');
+  assert.equal(hipsRes.partial, 4);
+
+  // 5. Legs out of sync (legs spread early and closed before arms reach overhead) -> count must be 0
+  const syncRes = testJumpingJackScenario('legs_out_of_sync');
+  assert.equal(syncRes.count, 0, 'Asynchronous leg spread before arms overhead must not count as jumping jacks');
+  assert.equal(syncRes.partial, 4);
+
+  // 6. Normal synchronized jumping jacks: 3 complete reps, 1 planned shallow rep
   const normalRes = testJumpingJackScenario('normal');
   assert.equal(normalRes.count, 3, 'Normal jumping jacks must retain 3 completed reps');
   assert.equal(normalRes.partial, 1, 'Normal jumping jacks must retain 1 shallow rep');
@@ -287,4 +308,58 @@ test('R-006 regression: first posture fault within first 3000ms is immediately t
 
   assert.ok(triggeredTimes.length > 0, 'First posture fault must NOT be suppressed by cooldown when timestamp < 3000ms');
   assert.equal(a.faultCounts.arm_swing, 1);
+});
+
+test('R-009 regression: 1-to-1 event-level shallow rep matching accurately detects duplicate false alarms (FP) under injection', () => {
+  function matchShallowEvents(predictions, gtCycles, period = 4700) {
+    const gtEvents = gtCycles.map(c => ({
+      cycleIndex: c,
+      windowStart: c * period,
+      windowEnd: (c + 1) * period,
+      matched: false
+    }));
+    let tp = 0;
+    let fp = 0;
+    for (const pred of predictions) {
+      const match = gtEvents.find(gt => !gt.matched && pred.timestamp >= gt.windowStart && pred.timestamp < gt.windowEnd);
+      if (match) {
+        match.matched = true;
+        tp++;
+      } else {
+        fp++;
+      }
+    }
+    const fn = gtEvents.filter(gt => !gt.matched).length;
+    const precision = tp + fp > 0 ? tp / (tp + fp) : 1.0;
+    const recall = tp + fn > 0 ? tp / (tp + fn) : 1.0;
+    return { tp, fp, fn, precision, recall };
+  }
+
+  const gtCycles = [2, 6]; // 2 planned shallow cycles in an 8-cycle sequence
+
+  // 1. Normal predictions: exactly one per shallow cycle
+  const normalPreds = [
+    { timestamp: 2 * 4700 + 4500 },
+    { timestamp: 6 * 4700 + 4500 }
+  ];
+  const normalRes = matchShallowEvents(normalPreds, gtCycles);
+  assert.equal(normalRes.tp, 2);
+  assert.equal(normalRes.fp, 0);
+  assert.equal(normalRes.fn, 0);
+  assert.equal(normalRes.precision, 1.0);
+  assert.equal(normalRes.recall, 1.0);
+
+  // 2. Negative injection: duplicate predictions within the same shallow cycle window (e.g., 3 predictions for cycle 2)
+  const injectedPreds = [
+    { timestamp: 2 * 4700 + 4200 },
+    { timestamp: 2 * 4700 + 4400 }, // duplicate
+    { timestamp: 2 * 4700 + 4600 }, // duplicate
+    { timestamp: 6 * 4700 + 4500 }
+  ];
+  const injectedRes = matchShallowEvents(injectedPreds, gtCycles);
+  assert.equal(injectedRes.tp, 2, 'All 2 GT cycles are recalled');
+  assert.equal(injectedRes.fp, 2, 'Two duplicate predictions in the same window must be identified as False Positives');
+  assert.equal(injectedRes.fn, 0);
+  assert.equal(injectedRes.recall, 1.0);
+  assert.equal(injectedRes.precision, 0.5, 'Precision drops to 50% due to 2 False Positives');
 });

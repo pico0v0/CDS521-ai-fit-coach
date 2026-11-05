@@ -24,11 +24,21 @@ function runExerciseBenchmark(exerciseId, fps, cycles = 6, options = {}) {
 
   let framesProcessed = 0;
   let faultsDetected = 0;
-  let tpShallow = 0;
-  let fnShallow = 0;
-  let fpShallow = 0;
-  let currentCycle = 0;
-  let prevCyclePartial = 0;
+  let prevPartialCount = 0;
+  const predictedShallowEvents = [];
+
+  // Ground truth shallow rep events for each cycle with c % 4 === 2 (R-009)
+  const gtShallowEvents = [];
+  for (let c = 0; c < cycles; c++) {
+    if (c % 4 === 2) {
+      gtShallowEvents.push({
+        cycleIndex: c,
+        windowStart: c * period,
+        windowEnd: (c + 1) * period,
+        matched: false
+      });
+    }
+  }
 
   const t0 = performance.now();
 
@@ -50,33 +60,42 @@ function runExerciseBenchmark(exerciseId, fps, cycles = 6, options = {}) {
 
     if (snapshot.fault) faultsDetected++;
 
-    // Track per-cycle shallow rep classification boundaries (R-009 event-level matching)
-    const cycleIndex = Math.floor(t / period);
-    if (cycleIndex > currentCycle && currentCycle < cycles) {
-      const shallowObserved = (analyzer.partialCount - prevCyclePartial) > 0;
-      const isExpectedShallow = (currentCycle % 4 === 2);
-      if (isExpectedShallow) {
-        if (shallowObserved) tpShallow++;
-        else fnShallow++;
-      } else {
-        if (shallowObserved) fpShallow++;
+    // Collect individual shallow rep prediction events
+    const newPartials = analyzer.partialCount - prevPartialCount;
+    if (newPartials > 0) {
+      for (let i = 0; i < newPartials; i++) {
+        predictedShallowEvents.push({
+          timestamp: t + 1,
+          cycle: Math.floor(t / period),
+          matched: false
+        });
       }
-      currentCycle = cycleIndex;
-      prevCyclePartial = analyzer.partialCount;
+      prevPartialCount = analyzer.partialCount;
     }
   }
 
-  // Final cycle evaluation
-  if (currentCycle < cycles) {
-    const shallowObserved = (analyzer.partialCount - prevCyclePartial) > 0;
-    const isExpectedShallow = (currentCycle % 4 === 2);
-    if (isExpectedShallow) {
-      if (shallowObserved) tpShallow++;
-      else fnShallow++;
+  // Strict 1-to-1 event-level matching (R-009):
+  // Each predicted shallow event can match at most ONE GT shallow event within the cycle window.
+  // Duplicate predictions or predictions outside GT windows are counted as FP.
+  // GT events without any matching prediction are counted as FN.
+  let tpShallow = 0;
+  let fpShallow = 0;
+
+  for (const pred of predictedShallowEvents) {
+    const matchedGt = gtShallowEvents.find(gt => !gt.matched && pred.timestamp >= gt.windowStart && pred.timestamp < gt.windowEnd);
+    if (matchedGt) {
+      matchedGt.matched = true;
+      pred.matched = true;
+      tpShallow++;
     } else {
-      if (shallowObserved) fpShallow++;
+      fpShallow++;
     }
   }
+
+  const fnShallow = gtShallowEvents.filter(gt => !gt.matched).length;
+  const precision = (tpShallow + fpShallow > 0) ? (tpShallow / (tpShallow + fpShallow)) : 1.0;
+  const recall = (tpShallow + fnShallow > 0) ? (tpShallow / (tpShallow + fnShallow)) : 1.0;
+  const f1 = (precision + recall > 0) ? (2 * precision * recall) / (precision + recall) : 0.0;
 
   const elapsedWallMs = performance.now() - t0;
   const countedReps = analyzer.count;
@@ -97,6 +116,9 @@ function runExerciseBenchmark(exerciseId, fps, cycles = 6, options = {}) {
     tpShallow,
     fnShallow,
     fpShallow,
+    precision,
+    recall,
+    f1,
     elapsedWallMs: elapsedWallMs.toFixed(1),
     throughputFps
   };
@@ -119,15 +141,21 @@ export function runAllBenchmarks() {
   const totalAbsError = results.reduce((sum, r) => sum + r.absError, 0);
   const overallMAE = (totalAbsError / results.length).toFixed(3);
   const totalExpectedShallow = results.reduce((sum, r) => sum + r.expectedShallowReps, 0);
+  const totalCountedShallow = results.reduce((sum, r) => sum + r.countedShallow, 0);
   const totalTpShallow = results.reduce((sum, r) => sum + r.tpShallow, 0);
+  const totalFpShallow = results.reduce((sum, r) => sum + r.fpShallow, 0);
   const totalFnShallow = results.reduce((sum, r) => sum + r.fnShallow, 0);
-  const shallowRecallPct = (totalTpShallow + totalFnShallow > 0)
-    ? ((totalTpShallow / (totalTpShallow + totalFnShallow)) * 100).toFixed(1) + '%'
-    : 'N/A';
+
+  const overallRecall = (totalTpShallow + totalFnShallow > 0) ? (totalTpShallow / (totalTpShallow + totalFnShallow)) : 1.0;
+  const overallPrecision = (totalTpShallow + totalFpShallow > 0) ? (totalTpShallow / (totalTpShallow + totalFpShallow)) : 1.0;
+  const overallF1 = (overallPrecision + overallRecall > 0) ? ((2 * overallPrecision * overallRecall) / (overallPrecision + overallRecall)) : 0.0;
+
+  const shallowRecallPct = (overallRecall * 100).toFixed(1) + '%';
+  const shallowPrecisionPct = (overallPrecision * 100).toFixed(1) + '%';
 
   // Generate Markdown report
   const tableRows = results.map(r =>
-    `| ${r.exerciseId.padEnd(12)} | ${r.fps} FPS | ${r.expectedFullReps} 次 | ${r.countedReps} 次 | ${r.expectedShallowReps} 次 | ${r.countedShallow} 次 | ${r.absError} | ${r.throughputFps} FPS |`
+    `| ${r.exerciseId.padEnd(12)} | ${r.fps} FPS | ${r.expectedFullReps} 次 | ${r.countedReps} 次 | ${r.expectedShallowReps} 次 | ${r.countedShallow} 次 | ${r.absError} | TP=${r.tpShallow}/FP=${r.fpShallow}/FN=${r.fnShallow} | ${r.throughputFps} FPS |`
   ).join('\n');
 
   const report = `# AI Fit Coach 自动化基准性能与 MAE 评测报告
@@ -141,15 +169,18 @@ export function runAllBenchmarks() {
 
 - **总评测样本轮次**：${results.length} 组独立长时序列
 - **全场景平均绝对误差（Overall MAE）**：**${overallMAE}**（基准达标）
-- **浅动作识别召回率（Shallow Rep Recall）**：**${shallowRecallPct}**（逐轮事件级实算：TP=${totalTpShallow}, FN=${totalFnShallow}，未达演示阈值动作均被准确判定为 partial 不予计数）
+- **浅动作识别召回率（Shallow Rep Recall）**：**${shallowRecallPct}**（严格一对一事件匹配：TP=${totalTpShallow}, FN=${totalFnShallow}）
+- **浅动作识别精确率（Shallow Rep Precision）**：**${shallowPrecisionPct}**（严格一对一事件匹配：TP=${totalTpShallow}, FP=${totalFpShallow}）
+- **浅动作识别 F1 分数**：**${overallF1.toFixed(3)}**
+- **事件真值标注说明**：真值（GT）来源于预设计划的合成生物力学动作序列，容差窗口为单动作周期 4700ms 内严格 1-to-1 匹配，重复/多余误报严格计入 FP。
 - **纯算法规则吞吐能力**：**> 1,500 FPS**（纯 CPU 状态机基准测试；实机浏览器 MediaPipe 推理耗时与 FPS 请参考实机运行面板）
 
 ---
 
 ## 二、分项评测明细
 
-| 动作标识 | 采样帧率 | 理论达标数 | 系统计数 | 理论浅动作数 | 系统浅动作数 | 绝对误差 | 算法处理能力 |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| 动作标识 | 采样帧率 | 理论达标数 | 系统计数 | 理论浅动作数 | 系统浅动作数 | 绝对误差 | 事件匹配混淆 (TP/FP/FN) | 算法处理能力 |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 ${tableRows}
 
 ---

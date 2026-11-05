@@ -397,41 +397,59 @@ async function begin(mode, file = null) {
       video.src = state.videoUrl;
       video.loop = false;
       video.pause();
-      video.currentTime = 0;
 
-      // Ensure video metadata is loaded before loading model, keeping video paused at 0s (R-003)
+      // Wait for loadeddata / readyState >= 2 (HAVE_CURRENT_DATA) so frame 0 is decodeable (R-003)
       await new Promise((resolve, reject) => {
-        if (video.readyState >= 1) return resolve();
-        video.onloadedmetadata = () => resolve();
-        video.onerror = () => reject(new Error('视频元数据解析失败，请检查文件格式'));
+        if (video.readyState >= 2) return resolve();
+        const onLoaded = () => { cleanup(); resolve(); };
+        const onError = () => { cleanup(); reject(new Error('视频元数据或首帧解析失败，请检查文件格式')); };
+        const cleanup = () => {
+          video.removeEventListener('loadeddata', onLoaded);
+          video.removeEventListener('error', onError);
+        };
+        video.addEventListener('loadeddata', onLoaded, { once: true });
+        video.addEventListener('error', onError, { once: true });
       });
-      video.pause();
-      video.currentTime = 0;
+      if (run !== state.activeRunId) return;
 
-      modelMessage('本地视频已暂停在第 0 秒等待，正在加载姿态估计 AI 模型…');
+      // Register seek listener BEFORE setting currentTime = 0, with proper cleanup
+      video.pause();
+      if (video.currentTime !== 0) {
+        await new Promise((resolve) => {
+          let timer = null;
+          const onSeeked = () => {
+            clearTimeout(timer);
+            video.removeEventListener('seeked', onSeeked);
+            resolve();
+          };
+          video.addEventListener('seeked', onSeeked, { once: true });
+          video.currentTime = 0;
+          timer = setTimeout(() => {
+            video.removeEventListener('seeked', onSeeked);
+            resolve();
+          }, 300);
+        });
+      }
+      if (run !== state.activeRunId) return;
+
+      modelMessage('本地视频已就绪，正在加载姿态估计 AI 模型…');
       const { detector, isLocalModel } = await createPoseLandmarker();
       if (run !== state.activeRunId) { detector.close(); return; }
       state.detector = detector; state.modelReady = true;
 
-      // Ensure seek to 0s is confirmed before starting playback
-      video.currentTime = 0;
-      await new Promise(r => {
-        video.onseeked = () => r();
-        setTimeout(r, 150);
-      });
-      await video.play();
       state.startWall = Date.now(); state.startPerf = performance.now();
       refreshModeUI();
       const sourceText = isLocalModel ? '真正的 MediaPipe 姿态模型（本地离线模型）已就绪。' : '真正的 MediaPipe 姿态模型已从网络加载就绪。';
-      modelMessage(`${sourceText}正在对选定视频进行实时帧采样 AI 动作评测。`, 'success');
-      inform('已开始对本地视频进行实时帧采样姿态分析（从第 0 秒启动采样）。');
+      modelMessage(`${sourceText}正在从 0s 启动实时帧采样 AI 动作评测。`, 'success');
+      inform('已从 0s 启动实时采样姿态分析（基于主线程吞吐自适应采样，非逐编码帧扫描）。');
       const stage = document.querySelector('#cameraStage');
       stage?.classList.remove('mirror');
 
+      // Start playback synchronized with frame sampling loop
+      await video.play();
+
       video.onended = () => {
-        const estTotalFrames = Math.max(1, Math.round((video.duration || 1) * 24));
-        const sampleRate = Math.min(100, Math.round((state.trackedFrames / estTotalFrames) * 100));
-        inform(`视频播放完毕：共有效采样分析 ${state.trackedFrames} 帧（按 24 FPS 估算采样覆盖率约 ${sampleRate}%）。可点击「结束训练」查看本次评测报告。`, 'info');
+        inform(`视频播放完毕：AI 实际采样推理 ${state.inferFrames || 0} 帧，有效检出人体姿态 ${state.trackedFrames || 0} 帧（平均单帧推理耗时约 ${state.latencyMs || 0}ms）。可点击「结束训练」查看本次评测报告。`, 'info');
       };
       state.frame = requestAnimationFrame(renderFrame);
       return;
@@ -516,6 +534,7 @@ function finishSession(manualCount = null) {
     count: snapshot.count, partialCount: snapshot.partialCount,
     durationSeconds: seconds, goal: state.goal, fatigue: state.fatigue,
     trackedFrames: (state.mode === 'camera' || state.mode === 'video') ? state.trackedFrames : 0,
+    inferredFrames: (state.mode === 'camera' || state.mode === 'video') ? (state.inferFrames || 0) : 0,
     warningCount: state.warningLogs.filter(e=>e.type==='warning').length,
     faultCounts: snapshot.faultCounts,
     manualCount: hasManual ? manualCount : null,

@@ -33,7 +33,7 @@ export function angleDegrees(a, b, c) {
   return Math.acos(cos) * 180 / Math.PI;
 }
 
-export function getLegSpreadRatio(landmarks, visibilityThreshold = 0.35) {
+export function getLegSpreadMetrics(landmarks, visibilityThreshold = 0.35) {
   if (!landmarks || landmarks.length < 29) return null;
   const leftHip = landmarks[23], rightHip = landmarks[24];
   const leftAnkle = landmarks[27], rightAnkle = landmarks[28];
@@ -47,7 +47,16 @@ export function getLegSpreadRatio(landmarks, visibilityThreshold = 0.35) {
   if (!Number.isFinite(hipDist) || hipDist < 0.02) return null;
   const ankleDist = Math.hypot(rightAnkle.x - leftAnkle.x, rightAnkle.y - leftAnkle.y);
   if (!Number.isFinite(ankleDist)) return null;
-  return ankleDist / hipDist;
+  return {
+    ratio: ankleDist / hipDist,
+    ankleDist,
+    hipDist,
+    vis
+  };
+}
+
+export function getLegSpreadRatio(landmarks, visibilityThreshold = 0.35) {
+  return getLegSpreadMetrics(landmarks, visibilityThreshold)?.ratio ?? null;
 }
 
 /** MediaPipe 33-landmark index convention. Supports side hysteresis & preferred side. */
@@ -198,8 +207,13 @@ export class ExerciseAnalyzer {
     this.currentFault = null;
     this.minLegSpread = Infinity;
     this.peakLegSpread = 0;
+    this.minAnkleDist = Infinity;
+    this.peakAnkleDist = 0;
     this.legTrackingLost = false;
     this.hadValidLegRatio = false;
+    this.armPeakLegSynchronized = false;
+    this.armPeakTimestamp = null;
+    this.legPeakTimestamp = null;
   }
   update({ angle, visible = true, timestamp, side = null, landmarks = null }) {
     if (!Number.isFinite(timestamp)) throw new Error('timestamp must be finite milliseconds');
@@ -209,7 +223,10 @@ export class ExerciseAnalyzer {
     if (sinceLast > 1200) {
       // Background tabs or long inference stalls cannot bridge an unfinished rep.
       this.ready = false; this.inRep = false; this.lastSmooth = null;
-      this.minLegSpread = Infinity; this.peakLegSpread = 0; this.legTrackingLost = false; this.hadValidLegRatio = false;
+      this.minLegSpread = Infinity; this.peakLegSpread = 0;
+      this.minAnkleDist = Infinity; this.peakAnkleDist = 0;
+      this.legTrackingLost = false; this.hadValidLegRatio = false;
+      this.armPeakLegSynchronized = false; this.armPeakTimestamp = null; this.legPeakTimestamp = null;
     }
     if (!visible || !Number.isFinite(angle) || angle < 5 || angle > 180) {
       // A lost pose must not complete a rep; reacquire while extended.
@@ -219,8 +236,13 @@ export class ExerciseAnalyzer {
       this.currentFault = null;
       this.minLegSpread = Infinity;
       this.peakLegSpread = 0;
+      this.minAnkleDist = Infinity;
+      this.peakAnkleDist = 0;
       this.legTrackingLost = false;
       this.hadValidLegRatio = false;
+      this.armPeakLegSynchronized = false;
+      this.armPeakTimestamp = null;
+      this.legPeakTimestamp = null;
       return this.snapshot();
     }
     this.visible = true;
@@ -237,8 +259,13 @@ export class ExerciseAnalyzer {
       this.currentFault = null;
       this.minLegSpread = Infinity;
       this.peakLegSpread = 0;
+      this.minAnkleDist = Infinity;
+      this.peakAnkleDist = 0;
       this.legTrackingLost = false;
       this.hadValidLegRatio = false;
+      this.armPeakLegSynchronized = false;
+      this.armPeakTimestamp = null;
+      this.legPeakTimestamp = null;
       this.lastEvent = { type: 'warning', message: '检测到动作侧别切换，本轮动作已重置', timestamp };
       return this.snapshot();
     }
@@ -248,13 +275,19 @@ export class ExerciseAnalyzer {
     }
 
     // Monitor lower body keypoints for jumping jacks (R-005)
+    let currentLegMetrics = null;
     if (this.exercise.id === 'jumping_jack') {
-      const legRatio = getLegSpreadRatio(landmarks);
-      if (legRatio !== null) {
+      currentLegMetrics = getLegSpreadMetrics(landmarks);
+      if (currentLegMetrics !== null) {
         this.hadValidLegRatio = true;
-        this.minLegSpread = Math.min(this.minLegSpread, legRatio);
+        this.minLegSpread = Math.min(this.minLegSpread, currentLegMetrics.ratio);
+        this.minAnkleDist = Math.min(this.minAnkleDist, currentLegMetrics.ankleDist);
         if (this.inRep) {
-          this.peakLegSpread = Math.max(this.peakLegSpread, legRatio);
+          if (currentLegMetrics.ratio > this.peakLegSpread) {
+            this.peakLegSpread = currentLegMetrics.ratio;
+            this.legPeakTimestamp = timestamp;
+          }
+          this.peakAnkleDist = Math.max(this.peakAnkleDist, currentLegMetrics.ankleDist);
         }
       } else if (this.inRep) {
         this.legTrackingLost = true;
@@ -293,9 +326,9 @@ export class ExerciseAnalyzer {
 
       // Initialize rep spread tracking
       if (this.exercise.id === 'jumping_jack') {
-        const legRatio = getLegSpreadRatio(landmarks);
-        if (legRatio !== null) {
-          this.peakLegSpread = Math.max(this.peakLegSpread, legRatio);
+        if (currentLegMetrics !== null) {
+          this.peakLegSpread = Math.max(this.peakLegSpread, currentLegMetrics.ratio);
+          this.peakAnkleDist = Math.max(this.peakAnkleDist, currentLegMetrics.ankleDist);
         } else {
           this.legTrackingLost = true;
         }
@@ -305,6 +338,21 @@ export class ExerciseAnalyzer {
       this.peakAngle = Math.max(this.peakAngle, measured);
       const isFullReached = isExpand ? this.peakAngle >= full : this.minAngle <= full;
       this.phase = isFullReached ? '完成幅度 · 返回起点' : '动作进行中';
+
+      // Track temporal arm-leg synchronization for jumping jacks (R-005)
+      if (this.exercise.id === 'jumping_jack') {
+        if (measured >= (this.peakAngle || 0)) {
+          this.armPeakTimestamp = timestamp;
+        }
+        // When arms are in the overhead peak zone (>= 125°), check concurrent leg spread & ankle displacement
+        if (measured >= 125 && currentLegMetrics !== null) {
+          if (currentLegMetrics.ratio >= 1.55 && currentLegMetrics.ankleDist >= 1.30 * this.minAnkleDist) {
+            this.armPeakLegSynchronized = true;
+            this.legSpreadAtArmPeak = Math.max(this.legSpreadAtArmPeak || 0, currentLegMetrics.ratio);
+            this.ankleDistAtArmPeak = Math.max(this.ankleDistAtArmPeak || 0, currentLegMetrics.ankleDist);
+          }
+        }
+      }
 
       // Check posture faults during movement
       const shouldCheckFault = isExpand ? measured > started : measured < started;
@@ -328,8 +376,8 @@ export class ExerciseAnalyzer {
         let legFaultReason = '';
 
         if (this.exercise.id === 'jumping_jack') {
-          const currentRatio = getLegSpreadRatio(landmarks);
-          if (!this.hadValidLegRatio || this.legTrackingLost || currentRatio === null) {
+          const endMetrics = currentLegMetrics || getLegSpreadMetrics(landmarks);
+          if (!this.hadValidLegRatio || this.legTrackingLost || !endMetrics) {
             legComplete = false;
             legFaultReason = '下肢关键点不可见或被遮挡，无法核验开合跳双腿动作';
           } else if (this.minLegSpread > 1.35) {
@@ -338,7 +386,13 @@ export class ExerciseAnalyzer {
           } else if (this.peakLegSpread < 1.65) {
             legComplete = false;
             legFaultReason = '双腿展开幅度不足，开合跳需双臂与双腿同步充分展开';
-          } else if (currentRatio > 1.40) {
+          } else if (this.peakAnkleDist < 1.35 * this.minAnkleDist || (this.peakAnkleDist - this.minAnkleDist) < 0.035) {
+            legComplete = false;
+            legFaultReason = '双脚踝未见真实展开位移，不能以单纯髋距变化伪造开合跳';
+          } else if (!this.armPeakLegSynchronized) {
+            legComplete = false;
+            legFaultReason = '双臂与双腿展开不同步，手臂上举最高峰时双腿未处于展开状态';
+          } else if (endMetrics.ratio > 1.40) {
             legComplete = false;
             legFaultReason = '双腿结束未收回并拢，开合跳每轮须返回双脚并拢起点';
           }
@@ -362,11 +416,18 @@ export class ExerciseAnalyzer {
         this.phase = '已就绪';
         this.minAngle = 180;
         this.peakAngle = 0;
-        const currentRatio = getLegSpreadRatio(landmarks);
-        this.minLegSpread = currentRatio ?? Infinity;
-        this.peakLegSpread = currentRatio ?? 0;
+        const currentMetrics = getLegSpreadMetrics(landmarks);
+        this.minLegSpread = currentMetrics?.ratio ?? Infinity;
+        this.peakLegSpread = currentMetrics?.ratio ?? 0;
+        this.minAnkleDist = currentMetrics?.ankleDist ?? Infinity;
+        this.peakAnkleDist = currentMetrics?.ankleDist ?? 0;
         this.legTrackingLost = false;
-        this.hadValidLegRatio = (currentRatio !== null);
+        this.hadValidLegRatio = (currentMetrics !== null);
+        this.armPeakLegSynchronized = false;
+        this.armPeakTimestamp = null;
+        this.legPeakTimestamp = null;
+        this.legSpreadAtArmPeak = 0;
+        this.ankleDistAtArmPeak = 0;
       }
     }
     return this.snapshot();

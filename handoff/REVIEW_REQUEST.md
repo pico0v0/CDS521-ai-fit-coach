@@ -1,44 +1,44 @@
-# REVIEW_REQUEST — v0.2.1-r5 第五轮 P1 专项缺陷闭环交接审查说明
+# REVIEW_REQUEST — v0.2.1-r6 第六轮 P1 专项彻底闭环交接审查说明
 
-**交付版本**：v0.2.1-r5  
+**交付版本**：v0.2.1-r6  
 **交付包**：`release/ai-fit-coach-demo-v0.2.1-handoff.zip` (39 个文件，完整哈希与逐文件零私钥扫描通过)  
-**本轮目标**：根据审查 AI 第四轮复审报告（`AI_Fit_Coach_v0.2.1-r4_Review`）及下一轮修复指示（`NEXT_AI_R5_PROMPT.md`），全面攻坚并彻底闭环 R-005（开合跳下肢四态严格协同）、R-003（视频实时帧采样口径与第 0 帧 seeked 等待）、P1-DATA-CSV / P2（UI 误差纠偏与 CSV 纳入资格列显式透明化）、R-009（基准召回率逐轮事件级真值实算）与 R-013（测速初始化状态重置）。
+**本轮目标**：根据审查 AI 第五轮独立复审报告（`AI Fit Coach v0.2.1-r5 — 第五轮 P1 专项独立复审报告`）及返修指令（`NEXT_AI_R6_FIX_PROMPT.md`），全面定向攻坚并彻底闭环最后三个尚未结案的 P1 项：
+1. **R-005**：开合跳严格双肢时序协同（高位同窗展开断言）与脚踝真实物理位移增量核验（彻底封堵 `hips_move_ankles_static` 与 `legs_out_of_sync`）；
+2. **R-003**：视频首帧就绪严格保证（`readyState >= 2`、先注册监听后 seeked、中断防护）、取消杜撰的 24 FPS 覆盖率分母，独立分离 `inferFrames` 与 `trackedFrames` 计数，全项目 6 处文档统一修正为“实时采样姿态分析”；
+3. **R-009**：浅动作识别召回率重构为严格一对一（1-to-1）事件级真值匹配，全面输出 TP/FP/FN/Precision/Recall/F1，并加入重复告警负向注入单测；
+4. **P2**：`src/store.js` 完善 `trackedFrames` 非负整数资格过滤。
 
 ---
 
-## 一、本轮重点加固与验收点（P1 专项攻坚）
+## 一、本轮重点加固与验收点（P1 专项彻底闭环）
 
-1. **R-005 [P1/规则判定] 开合跳双下肢四态严格协同闭环（彻底解决常开/常闭/遮挡绕过）**：
-   - **源码位置**：`src/exercise.js:35–65, 235–290`、`tests/exercise.test.mjs:265–310`；
+1. **R-005 [P1/规则判定] 开合跳严格双肢时序协同与脚踝真实位移核验**：
+   - **源码位置**：`src/exercise.js:35–70, 205–235, 290–330, 360–415`、`tests/exercise.test.mjs:240–300`；
    - **加固措施**：
-     - 废除“未检测到下肢默认通过”的脆弱假设，明确开合跳必须在可观测下肢关键点下闭环完成；
-     - 引入状态机开合比边界动态追踪（`minLegSpread` 最小合拢比、`peakLegSpread` 最大开合比、`legTrackingLost` 关键点丢失标记）；
-     - 完整开合跳必须满足严格的四态协同演变：下肢全程可信追踪（`!legTrackingLost`）+ 起始合拢（`minLegSpread <= 1.35`）+ 充分张开（`peakLegSpread >= 1.65`）+ 归位闭合（`currentRatio <= 1.40`）；
-     - 独立单测覆盖 4 种合成场景：`closed`（常闭摆臂，有效=0）、`wide`（常开摆臂，有效=0）、`occluded`（遮挡摆臂，有效=0）、`normal`（正常开合，有效=3，浅动作=1）；
-     - 审查 AI 提供的 `audit/.../REPRO_R4.mjs` 测试脚本完全转绿。
+     - 引入 `getLegSpreadMetrics`，统一输出开合比、脚踝绝对间距与髋部绝对间距；
+     - **脚踝位移增量门控**：断言脚踝绝对跨度发生实质性物理展开（`peakAnkleDist >= 1.35 * minAnkleDist` 且绝对增量达标），彻底封堵“双脚不动、仅靠髋关节收缩产生伪峰值”（`hips_move_ankles_static`）；
+     - **双肢时序严格协同**：在双臂处于高位展开区间（`measured >= 125°`）时，强制断言下肢必须处于同步展开状态（`armPeakLegSynchronized = true`），彻底封堵“双腿提前开合并收拢、双臂随后上举”（`legs_out_of_sync`）；
+     - 单测覆盖全部 6 大反例与正常动作：`closed: 0`、`wide: 0`、`occluded: 0`、`hips_move_ankles_static: 0`、`legs_out_of_sync: 0`、`normal: 3 有效 + 1 浅动作`；
+     - 审查 AI 提供的 `R5_INDEPENDENT_REPRO.mjs` 全部 7 种测试场景 100% 符合预期。
 
-2. **R-003 [P1/视频评测] 视频时序与采样口径规范化（第 0 秒 seeked 确认与采样指标上屏）**：
-   - **源码位置**：`src/app.js:374–420`；
+2. **R-003 [P1/视频评测] 视频首帧就绪严格保证、取消杜撰覆盖率并分离推理/跟踪计数**：
+   - **源码位置**：`src/app.js:390–445, 530–545`；
    - **加固措施**：
-     - 纠正“全量逐帧离线扫描”的绝对化宣称，端正学术表述为“实时帧采样 AI 动作评测（基于推理吞吐自适应采样，非逐帧离线扫描）”；
-     - 建立首帧异步 seeked 等待机制：模型加载完毕后，显式执行 `video.currentTime = 0;` 并等待 `onseeked` 完成，确保首帧物理就绪后再启动播放与推理主循环；
-     - 视频播放结束（`onended`）时自动计算并输出：`已完成视频评测：采样 X 帧，估算采样覆盖率 Y%`，向使用者如实展示实际抽样密度。
+     - 废除 `setTimeout(r, 150)` 假定成功等待逻辑；严格等待视频首帧已解码就绪（`readyState >= 2`，即 `HAVE_CURRENT_DATA`）；
+     - 若 `currentTime !== 0`，先注册 `seeked` 事件监听器再触发 `video.currentTime = 0`，确保首帧真正物理就绪；异步阶段增加 `activeRunId` 中断保护；
+     - 彻底废除按固定 24 FPS 计算的编造“覆盖率”，改为如实输出：`AI 实际采样推理 X 帧，有效检出人体姿态 Y 帧（平均单帧推理耗时约 Z ms）`；会话记录同步保存 `inferredFrames` 与 `trackedFrames`；
+     - 全项目 6 处文档（`README-demo.md`、`docs/DEVELOPMENT_PLAN.md`、`docs/EXPERIMENT_PROTOCOL.md`、`docs/MOBILE_TESTING.md`、`docs/PRESENTATION_20MIN.md`）中的“逐帧推理”全部统一修正为“实时采样姿态分析（基于主线程吞吐自适应采样，非逐编码帧扫描）”。
 
-3. **P1-DATA-CSV / P2 [P1/数据透明度] 历史记录 UI 纠偏与 CSV 导出 MAE 纳入资格显式透明化**：
-   - **源码位置**：`src/store.js:48–125`、`src/app.js:520–580`、`tests/store.test.mjs:115–160`；
+3. **R-009 [P1/基准评测] 浅动作识别重构为严格一对一事件匹配（TP/FP/FN/Precision/Recall/F1）**：
+   - **源码位置**：`scripts/benchmark.mjs:30–105, 145–195`、`tests/exercise.test.mjs:310–365`；
    - **加固措施**：
-     - 提取并导出纯函数 `getSessionMaeEligibility(session)`，定义看板与 CSV 统一的纳入准则：真实视频/摄像头模式、已填报真实次数、且有效追踪帧数 `>= 5` 帧；
-     - `src/app.js`：卡片与表格全面接入 `deriveVerifiedAbsError`，杜绝旧脏数据显示；
-     - `exportSessionsCSV` 增设「计入真实MAE」（`是` / `否`）与「排除原因」（如“模拟演示数据（非AI推理）”、“未标注真实次数（无对比真值）”、“AI有效追踪帧数过少（<5帧）”）两列；
-     - 外部复现人员仅需对 CSV 按 `计入真实MAE === '是'` 过滤，计算其 `absError` 算术平均值，即与系统看板 `computeMaeStats().realMae` 100% 严丝合缝完全一致。
+     - 重构为严格 1-to-1 周期时间戳事件级真值匹配；
+     - 每个真实浅动作（GT）最多只能消耗一个预测事件；同一窗口内出现的多余重复告警严格计入假阳性（FP），漏检计入假阴性（FN）；
+     - 终端与报告全面输出 TP、FP、FN、Precision、Recall、F1 指标及真值标注来源说明；
+     - 单测覆盖正常 1-to-1 匹配与注入 2 次重复预测负向测试：精准识别出 2 个 FP，精确率如实下降至 50% 且召回率保持 100%。
 
-4. **R-009 [P1/基准召回] 浅动作召回率升级为逐轮事件级真值匹配**：
-   - **源码位置**：`scripts/benchmark.mjs:180–240`；
-   - **加固措施**：重构浅动作召回率统计逻辑，升级为基于动作时间戳窗口逐轮事件级真值匹配（TP / FN / FP），严格按 `TP / (TP + FN)` 计算并上报终端：`浅动作识别召回率（Shallow Rep Recall）：100.0%（逐轮事件级实算：TP=18, FN=0）`。
-
-5. **R-013 [P2/测速体验] 测速指示器会话重置优化**：
-   - **源码位置**：`src/app.js:290–310`；
-   - **加固措施**：在启动或重置会话时清零所有 FPS 统计数据，并在前 1 秒样本未形成时显示“正在测速…”，避免闪烁上一会话残留帧率数据。
+4. **P2 [数据兼容] 完善 `trackedFrames` 过滤与会话结构**：
+   - `src/store.js`：`getSessionMaeEligibility` 采用 `Math.floor(tf) >= 5` 处理，向后兼容旧有浮点记录并安全过滤非整数和不足 5 帧的脏会话。
 
 ---
 
@@ -46,10 +46,10 @@
 
 ```bash
 npm run check                                                         # 6 个核心 ES 模块语法检查 (PASS)
-npm test                                                              # 31/31 项算法、状态机、数据隔离与 BUG01~04/R-005 单测 (PASS)
+npm test                                                              # 32/32 项全量单测 (PASS)
 python scripts/test_package_security.py                               # 7 项安全注入与负向防假阳性自动化回归 (PASS)
 node scripts/smoke.mjs                                                # 包含目录符号链接与非客户端路径 403 拦截的冒烟测试 (PASS)
-npm run benchmark                                                     # 9 组跨 FPS 动作基准测试与逐轮事件级召回率 (PASS)
+npm run benchmark                                                     # 9 组跨 FPS 动作基准测试与严格 1-to-1 事件匹配 (PASS)
 python scripts/package.py                                             # 自动化零豁免前置扫描与 ZIP 打包 (PASS)
 python scripts/verify_package.py release/ai-fit-coach-demo-v0.2.1-handoff.zip # 独立解包审计与 SHA-256 完整性校验 (PASS)
 ```
@@ -59,45 +59,43 @@ python scripts/verify_package.py release/ai-fit-coach-demo-v0.2.1-handoff.zip # 
 ## 🤖 供直接复制发给复审 AI 的提示词（Prompt for Reviewer AI）
 
 ```markdown
-请你扮演资深代码安全与计算机视觉审查专家，对本次提交的 AI Fit Coach v0.2.1-r5 进行第五轮 P1 缺陷专项复审。
+请你扮演资深代码安全与计算机视觉审查专家，对本次提交的 AI Fit Coach v0.2.1-r6 进行第六轮 P1 缺陷专项复审。
 
 【本次交付背景与任务】
-第四轮复审报告（AI_Fit_Coach_v0.2.1-r4_Review）明确确认：P0 安全修复已完全闭环通过且无需改动，P1 项中 P1-TEST-001（安全测试假阳性）、R-004（侧别切换锁定）、R-006（首次姿态异常）、R-010（退化骨架过滤）、R-008（离线依赖说明）等已通过验收。
-本轮开发者严格根据审查报告中的 R5 返修指示（NEXT_AI_R5_PROMPT.md），全面完成了以下两项核心 P1 遗留项及相关配套优化：
+第五轮独立复审报告（AI Fit Coach v0.2.1-r5 — 第五轮 P1 专项独立复审报告）确认：P0 安全持续结案，P1 中的 P1-DATA-CSV / CSV 纳入资格与历史展示纠偏、R-004、R-006、R-010、R-013 均已验收通过。
+本轮开发者严格根据审查报告中的返修指令（NEXT_AI_R6_FIX_PROMPT.md），全面完成了最后三个尚未结案的 P1 项定向返修并统一了全套学术措辞：
 
-1. R-005 开合跳双下肢四态协同严格闭环（彻底解决常开/常闭/遮挡绕过）：
+1. R-005 开合跳双肢严格时序协同与脚踝真实位移核验：
    - 源码：`src/exercise.js`；
-   - 彻底废除“未检测到下肢默认通过”的脆弱假设；
-   - 状态机追踪 minLegSpread、peakLegSpread 与 legTrackingLost；完整动作必须满足下肢全程可信追踪 + 先合拢（min<=1.35）+ 充分张开（peak>=1.65）+ 归位闭合（ratio<=1.40）；
-   - 在 `tests/exercise.test.mjs` 中补充四场景单测，断言 closed=0, wide=0, occluded=0, normal=3完整+1浅动作；
-   - 之前由审查 AI 提供的 `audit/.../REPRO_R4.mjs` 脚本实测已全部转绿（wide.validCount=0, occluded.validCount=0）。
+   - 引入 getLegSpreadMetrics，增加 peakAnkleDist >= 1.35 * minAnkleDist 真实物理位移增量门控，彻底解决双脚不动单纯髋距变化产生的伪开合（hips_move_ankles_static）；
+   - 在双臂处于上举峰值区间（measured >= 125°）时，强制核验双腿必须处于同步展开状态（armPeakLegSynchronized = true），彻底解决双腿提前开合并收拢、双臂随后上举的异步伪开合（legs_out_of_sync）；
+   - 在 `tests/exercise.test.mjs` 中补充 hips_move_ankles_static 与 legs_out_of_sync 独立单测，断言有效计数严格为 0；
+   - 运行上一轮审查 AI 提供的 `R5_INDEPENDENT_REPRO.mjs` 场景实测已全部转绿（全部 7 个场景 100% 符合预期）。
 
-2. R-003 视频评测时序与实时采样口径规范化：
+2. R-003 视频首帧就绪保证、取消杜撰覆盖率并分离推理/跟踪计数：
    - 源码：`src/app.js`；
-   - 明确学术口径为“实时帧采样 AI 动作评测（基于推理吞吐自适应采样，非逐帧离线扫描）”，绝不虚假宣传全量逐帧；
-   - 建立首帧物理就绪等待机制：加载模型后显式设置 video.currentTime = 0 并等待 video.onseeked 异步完成，再启动播放与推理主循环；
-   - 视频播放结束（onended）时上报实际采样帧数与估算帧覆盖率。
+   - 废除 setTimeout 假定成功逻辑，严格等待 video.readyState >= 2（HAVE_CURRENT_DATA 首帧已物理解码就绪）；
+   - 若 currentTime !== 0，先挂载 seeked 事件监听器再触发 video.currentTime = 0；
+   - 异步加载阶段增加 activeRunId 中断保护，防止中途取消或模式切换时的悬挂任务；
+   - 彻底废除按固定 24 FPS 估算的覆盖率，改为如实汇报：AI 实际采样推理 X 帧，有效检出人体姿态 Y 帧（平均单帧推理耗时约 Z ms）；会话记录独立保存 inferredFrames 与 trackedFrames；
+   - 全项目 6 处文档（README-demo.md, DEVELOPMENT_PLAN.md, EXPERIMENT_PROTOCOL.md, MOBILE_TESTING.md, PRESENTATION_20MIN.md）中的“逐帧推理”全部统一修正为“实时采样姿态分析（基于主线程吞吐自适应采样，非逐编码帧扫描）”。
 
-3. P1-DATA-CSV / P2 历史 UI 误差显示纠偏与 CSV 导出 MAE 纳入资格显式透明化：
-   - 源码：`src/store.js`、`src/app.js`；
-   - 实现并导出 pure function `getSessionMaeEligibility(session)`，统一准入仲裁；
-   - 历史记录卡片与表格全面接入 deriveVerifiedAbsError 纠偏保护；
-   - `exportSessionsCSV` 增设「计入真实MAE」（是/否）与「排除原因」两列；外部评审只需过滤「计入真实MAE = 是」，行误差均值即可 100% 严丝合缝对齐前端看板 realMae。
-
-4. R-009 基准测试浅动作召回率升级为逐轮事件级真值匹配：
+3. R-009 浅动作识别重构为严格一对一事件级真值匹配：
    - 源码：`scripts/benchmark.mjs`；
-   - 废除总数 min 聚合计算，升级为依据动作时间戳窗口逐轮事件级判定（TP/FN/FP），终端上报实算召回率 100.0%（TP=18, FN=0）。
+   - 废除时间窗布尔有无判定，重构为基于单动作周期时间戳窗口的严格一对一（1-to-1）事件级匹配；
+   - 每个真实浅动作（GT）最多只能消耗一个预测事件；同一窗口内出现的多余重复告警严格计入假阳性（FP），漏检计入假阴性（FN）；
+   - 终端与报告全面输出 TP、FP、FN、Precision、Recall、F1 指标及真值标注来源说明；
+   - 单元测试增设一对一匹配与重复注入负向断言：注入 2 次多余告警精准识别出 2 个 FP，精确率如实下降至 50% 且召回率保持 100%；
+   - 运行 `R5_INDEPENDENT_REPRO.mjs` 中的 monkeypatch 重复注入测试，输出精准报告 expected: 18, observed: 54, tp: 18, fn: 0, fp: 36。
 
-5. R-013 性能指示器会话重置优化：
-   - 源码：`src/app.js`；
-   - 会话切换或重置时清空统计数据，显示“正在测速…”，消除初始化首秒残留旧帧率闪烁。
+4. P2 数据兼容性：
+   - `src/store.js`：trackedFrames 采用 Math.floor(tf) >= 5 处理，安全兼容历史浮点数据并过滤脏数据。
 
 【请重点审查】
-1. 验证 R-005 开合跳下肢四态严格协同实现与独立单测，运行 REPRO_R4.mjs 确认 wide 与 occluded 不再计为有效次数；
-2. 验证 R-003 视频评测时序（第 0 秒 seeked 等待）与自适应采样口径及上屏指标；
-3. 验证 CSV 导出新增列（计入真实MAE、排除原因）与前端看板 realMae 的完全可复现一致性；
-4. 验证 R-009 逐轮事件级 TP/FN 浅动作召回率实算逻辑；
-5. 执行全套自动化核验命令（npm run check, npm test, python scripts/test_package_security.py, node scripts/smoke.mjs, npm run benchmark, python scripts/package.py, python scripts/verify_package.py <zip>），确认 31/31 单测、7/7 安全场景及打包验签全部绿灯。
+1. 运行 `tests/exercise.test.mjs`（32/32 PASS）或审查 AI 的 `R5_INDEPENDENT_REPRO.mjs`，验证 R-005 的两项新反例（hips_move_ankles_static, legs_out_of_sync）有效计数已彻底清零；
+2. 验证 R-003 视频首帧 readyState >= 2 等待与 seeked 监听顺序，以及视频结束提示与文档措辞规范；
+3. 验证 R-009 浅动作 1-to-1 事件级匹配算法（TP/FP/FN/Precision/Recall/F1），运行重复告警注入确认准确报告 FP=36；
+4. 执行全套自动化核验命令（npm run check, npm test, python scripts/test_package_security.py, node scripts/smoke.mjs, npm run benchmark, python scripts/package.py, python scripts/verify_package.py <zip>），确认全部绿灯。
 
 请给出本次 P1 专项闭环的复审结论。
 ```

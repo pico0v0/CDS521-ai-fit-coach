@@ -65,7 +65,7 @@ export function getSessionMaeEligibility(s) {
   if (verifiedError === null) {
     return { eligible: false, reason: '未标注人工真值达标次数' };
   }
-  if (typeof s.trackedFrames !== 'number' || !Number.isFinite(s.trackedFrames) || s.trackedFrames < 5) {
+  if (typeof s.trackedFrames !== 'number' || !Number.isFinite(s.trackedFrames) || Math.floor(s.trackedFrames) < 5) {
     return { eligible: false, reason: '有效姿态跟踪帧数不足(<5帧)' };
   }
   return { eligible: true, reason: '' };
