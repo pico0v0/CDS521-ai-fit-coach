@@ -406,7 +406,10 @@ async function begin(mode, file = null) {
   inform('正在申请摄像头权限，并加载真正的人体姿态模型…');
   modelMessage('初始化中：需要 HTTPS/localhost、摄像头授权及可访问模型的网络连接。');
   try {
-    if (!navigator.mediaDevices?.getUserMedia) throw new Error('当前浏览器不支持摄像头访问，请在 localhost 或 HTTPS 下打开。');
+    if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+      throw new Error('移动设备在非安全上下文（局域网 HTTP）下会禁用摄像头。建议使用 localhost、开启 HTTPS、使用「本地视频评测」模式，或在手机 Chrome 设置 chrome://flags/#unsafely-treat-insecure-origin-as-secure。');
+    }
+    if (!navigator.mediaDevices?.getUserMedia) throw new Error('当前浏览器环境不支持摄像头访问，请在 localhost 或 HTTPS 安全上下文中打开。');
     const stream = await navigator.mediaDevices.getUserMedia({ audio:false,
       video:{ facingMode:{ ideal:state.facing }, width:{ideal:960}, height:{ideal:540}, frameRate:{ideal:24} } });
     if (run !== state.activeRunId) { stream.getTracks().forEach(t=>t.stop()); return; }

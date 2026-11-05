@@ -1,5 +1,15 @@
 # CHANGELOG（每轮 AI 必须追加）
 
+## v0.1.9 — 移动端局域网安全上下文优化与真机测试指南（解决 KI-006）（2026-11-05）
+
+### 已新增与改进
+- **移动端局域网访问与安全上下文友好指引（解决 KI-006）**：
+  - 在 `src/app.js` 中增加 `window.isSecureContext` 检测；当检测到手机通过局域网 HTTP IP 访问且被浏览器安全策略限制摄像头时，输出清晰、可操作的提示引导，告知用户使用本地视频评测、开启 HTTPS 或配置 Chrome Flags；
+  - 静态服务器 `server.mjs` 增加 `HOST`（支持 `0.0.0.0` 局域网绑定）与 `HTTPS`（支持自签名证书）环境变量支持，扩展媒体 MIME 类型（`.mp4`, `.webm`, `.mov`, `.woff2`）；
+  - 编写详细的移动端真机验收指南 [docs/MOBILE_TESTING.md](file:///c:/workspace/ai-fit-coach/docs/MOBILE_TESTING.md)，包含 Chrome Flags 免证书授权、本地自签名证书生成及常见手机端卡顿/镜像排错指南。
+- **已知问题与验收跟踪更新（`handoff/KNOWN_ISSUES.md`）**：
+  - 更新 KI-001、KI-002 与 KI-006 状态，反映近期在离线模型、本地视频评测、MAE 基准及移动端环境下的工程闭环成果。
+
 ## v0.1.8 — 骨架关节实况 HUD 角度标牌与全动作 MAE 基准评测套件（2026-11-05）
 
 ### 已新增与改进
