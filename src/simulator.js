@@ -132,18 +132,44 @@ export function simulatePose(elapsedMs, exerciseId, options = {}) {
     const headY = shoulderY - (0.07 * c_t) - 0.02;
     put(points, 0, headX, headY);
   } else {
-    const elbowX = .57, elbowY = .51;
-    // When fault is injected, shift shoulder backward relative to elbow
-    const shoulderX = injectFault ? 0.42 : 0.54;
-    put(points,11,shoulderX,.30);put(points,12,shoulderX-.03,.31);
-    put(points,13,elbowX,elbowY);put(points,14,.48,.53);
-    put(points,15,elbowX+.20*Math.sin(angle),elbowY-.20*Math.cos(angle));
-    put(points,16,.48,.74);
-    put(points,23,.53,.62);put(points,24,.49,.62);
-    put(points,25,.53,.79);put(points,26,.49,.79);
-    put(points,27,.53,.93);put(points,28,.49,.93);
-    put(points,29,.52,.94);put(points,30,.48,.94);
-    put(points,0,shoulderX-.01,.18);
+    const angleDeg = simulatedAngle(elapsedMs, exerciseId);
+    const R = 960 / 540;
+    const shoulderX = 0.52, shoulderY = 0.28;
+    const L_upper = 0.20, L_fore = 0.18;
+
+    // 1. Torso & lower body: upright, stable, anatomically grounded
+    put(points, 11, shoulderX, shoulderY);
+    put(points, 12, shoulderX - 0.025, shoulderY);
+    put(points, 0, shoulderX, shoulderY - 0.10);
+
+    put(points, 23, shoulderX, 0.55); put(points, 24, shoulderX - 0.025, 0.55);
+    put(points, 25, shoulderX, 0.72); put(points, 26, shoulderX - 0.025, 0.72);
+    put(points, 27, shoulderX, 0.88); put(points, 28, shoulderX - 0.025, 0.88);
+    put(points, 29, shoulderX - 0.025, 0.89); put(points, 30, shoulderX - 0.045, 0.89);
+
+    // Non-active arm hangs naturally by side
+    put(points, 14, shoulderX - 0.025, shoulderY + 0.17);
+    put(points, 16, shoulderX - 0.025, shoulderY + 0.33);
+
+    // 2. Upper arm: pinned close to torso (drift = 0.03 <= 0.11); swings forward on fault (drift = 0.13 > 0.11)
+    const swingOffset = injectFault ? 0.13 : 0.03;
+    const elbowX = shoulderX + swingOffset;
+    const dx_norm = swingOffset * R;
+    const dy = Math.sqrt(Math.max(0.01, L_upper * L_upper - dx_norm * dx_norm));
+    const elbowY = shoulderY + dy;
+    put(points, 13, elbowX, elbowY);
+
+    // 3. Forearm: curls smoothly with 16:9 aspect-ratio compensation (constant 97px pixel length, exact angleDeg)
+    const vES_x = shoulderX - elbowX;
+    const vES_y = shoulderY - elbowY;
+    const normAlpha = Math.atan2(vES_y, vES_x);
+    const targetWristAngle = normAlpha + angleDeg * Math.PI / 180;
+    const c_w = Math.cos(targetWristAngle);
+    const s_w = Math.sin(targetWristAngle);
+    const denom_w = Math.hypot(c_w * R, s_w);
+    const wristX = elbowX + (L_fore * c_w) / denom_w;
+    const wristY = elbowY + (L_fore * s_w) / denom_w;
+    put(points, 15, wristX, wristY);
   }
   return points;
 }
