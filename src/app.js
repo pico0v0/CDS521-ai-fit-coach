@@ -94,7 +94,7 @@ function trainingPage() {
     <div class="training-layout"><section class="camera-column">
       <div class="module-heading"><div><span class="section-index">01</span><strong>视觉训练区域</strong></div><span id="modePill" class="mode-pill">● 等待开始</span></div>
       <div class="camera-stage" id="cameraStage"><video id="liveVideo" autoplay muted playsinline></video><canvas id="poseCanvas" width="960" height="540" aria-label="人体骨架叠加画布"></canvas><div class="scan-corner tl"></div><div class="scan-corner tr"></div><div class="scan-corner bl"></div><div class="scan-corner br"></div><div class="stage-top"><span class="stage-tag">POSE TRACKING / ${ex.english}</span><span id="perfIndicator" class="perf-tag">-- FPS</span><span id="stageIndicator">STANDBY</span></div><div class="stage-bottom" id="stageHint">请使用下方按钮开启摄像头或模拟演示（空格键暂停/继续）</div><div class="sim-label" id="simLabel">模拟数据 · 非真实 AI 识别</div></div>
-      <div class="camera-actions"><button class="btn btn-primary" data-action="start-camera" id="startCamera">◉ &nbsp; 启动 AI 摄像头</button><button class="btn btn-outline" data-action="start-demo" id="startDemo">▷ &nbsp; 模拟演示</button><button class="btn btn-muted" data-action="pause" id="pauseBtn" disabled>暂停</button><button class="btn btn-danger" data-action="end" id="endBtn" disabled>结束训练</button></div>
+      <div class="camera-actions"><button class="btn btn-primary" data-action="start-camera" id="startCamera">◉ &nbsp; 启动 AI 摄像头</button><button class="btn btn-outline" data-action="select-video" id="startVideo">🎞 &nbsp; 本地视频评测</button><button class="btn btn-outline" data-action="start-demo" id="startDemo">▷ &nbsp; 模拟演示</button><button class="btn btn-muted" data-action="pause" id="pauseBtn" disabled>暂停</button><button class="btn btn-danger" data-action="end" id="endBtn" disabled>结束训练</button><input type="file" id="videoFileInput" accept="video/mp4,video/webm,video/ogg,video/quicktime" style="display:none"></div>
       <div id="modelMessage" class="model-message" role="status">真实模式首次启动将从 Google / jsDelivr 加载模型与运行库，需要联网；模拟模式不使用 AI。</div>
       <div class="instruction"><span class="info-dot">i</span><div><strong>机位建议</strong><p id="cameraGuidance">${ex.guidance}</p></div></div>
     </section><aside class="analysis-column">
@@ -118,27 +118,35 @@ function reportsPage() {
   return `<div class="page"><div class="page-heading"><div><div class="eyebrow">SESSION REVIEW / LOCAL RECORDS</div><h2>训练报告 <span>PROGRESS TRACKER</span></h2><p>只在浏览器本地保存次数等统计信息，不保存摄像头视频。</p></div><button class="btn btn-secondary" data-action="open-training">+ 新训练</button></div>
     <section class="report-metrics"><article><span>训练记录</span><strong>${sessions.length}</strong><small>SESSIONS</small></article><article><span>累计有效次数</span><strong>${totalCount}</strong><small>REPS</small></article><article><span>平均每次记录</span><strong>${mean}</strong><small>REPS / SESSION</small></article></section>
     <div class="report-grid"><section class="panel"><div class="panel-heading"><h3>最近一次训练</h3><span>LATEST SESSION</span></div>
-      ${current ? `<div class="latest-title">${escapeText(EXERCISES[current.exercise]?.name || current.exercise)} <span class="report-chip ${current.mode==='demo'?'demo-chip':''}">${current.mode==='demo'?'模拟数据':current.trackedFrames?'真实摄像头':'摄像头（未跟踪到人体）'}</span></div><div class="latest-date">${formatDate(current.startedAt)}</div><div class="session-numbers"><div><strong>${current.count}</strong><small>有效次数</small></div><div><strong>${current.partialCount}</strong><small>未达幅度</small></div><div><strong>${(current.faultCounts?.trunk_lean || 0) + (current.faultCounts?.arm_swing || 0) + (current.faultCounts?.arm_asymmetry || 0)}</strong><small>姿态提示</small></div><div><strong>${formatTime(current.durationSeconds)}</strong><small>训练时长</small></div></div><div class="advice-box"><span>✦ 个性化建议 · 规则模板</span><p>${escapeText(makeAdvice(current, current.goal || state.goal, current.fatigue || state.fatigue))}</p></div>` : `<div class="empty-state"><span>◎</span><h3>暂无训练记录</h3><p>进入训练页，开启真实摄像头或模拟演示，结束训练后会自动生成报告。</p><button class="btn btn-primary" data-action="open-training">立即开始 →</button></div>`}
-    </section><section class="panel"><div class="panel-heading"><h3>最近训练次数</h3><span>LAST 8 SESSIONS</span></div><div class="chart-wrap">${chart.length ? `<div class="bar-chart">${chart.map((s,i)=>`<div class="bar-cell"><span>${s.count}</span><div class="bar ${s.mode==='demo'?'bar-sim':''}" style="height:${Math.max(5, Math.round(s.count/max*185))}px"></div><small>${i+1}</small></div>`).join('')}</div><div class="legend"><span class="legend-dot"></span>真实 <span class="legend-dot sim"></span>模拟</div>` : `<div class="empty-chart">暂无数据，请先完成训练</div>`}</div></section></div>
-    <section class="panel history-panel"><div class="panel-heading"><h3>历史记录</h3><div class="history-actions"><button class="btn btn-sm btn-outline" data-action="export-csv" ${sessions.length?'':'disabled'} title="导出用于 Excel 对照分析的 CSV 表格">⤓ 导出 CSV</button><button class="btn btn-sm btn-outline" data-action="export-json" ${sessions.length?'':'disabled'} title="导出完整 JSON 数据">⤓ 导出 JSON</button><button class="text-danger" data-action="clear-history" ${sessions.length?'':'disabled'}>清空记录</button></div></div><div class="history-table"><div class="history-head"><span>训练日期</span><span>动作</span><span>模式</span><span>有效次数</span><span>用时</span></div>${sessions.length ? sessions.map(s=>`<div class="history-row"><span>${formatDate(s.startedAt)}</span><span>${escapeText(EXERCISES[s.exercise]?.name || s.exercise)}</span><span>${s.mode==='demo'?'模拟':'真实'}</span><strong>${s.count}</strong><span>${formatTime(s.durationSeconds)}</span></div>`).join('') : '<p class="empty-records">暂无记录</p>'}</div></section>
+      ${current ? `<div class="latest-title">${escapeText(EXERCISES[current.exercise]?.name || current.exercise)} <span class="report-chip ${current.mode==='demo'?'demo-chip':(current.mode==='video'?'video-chip':'')}">${current.mode==='demo'?'模拟数据':(current.mode==='video'?'本地视频AI':(current.trackedFrames?'真实摄像头':'摄像头（未跟踪到人体）'))}</span></div><div class="latest-date">${formatDate(current.startedAt)}</div><div class="session-numbers"><div><strong>${current.count}</strong><small>有效次数</small></div><div><strong>${current.partialCount}</strong><small>未达幅度</small></div><div><strong>${(current.faultCounts?.trunk_lean || 0) + (current.faultCounts?.arm_swing || 0) + (current.faultCounts?.arm_asymmetry || 0)}</strong><small>姿态提示</small></div><div><strong>${formatTime(current.durationSeconds)}</strong><small>训练时长</small></div></div><div class="advice-box"><span>✦ 个性化建议 · 规则模板</span><p>${escapeText(makeAdvice(current, current.goal || state.goal, current.fatigue || state.fatigue))}</p></div>` : `<div class="empty-state"><span>◎</span><h3>暂无训练记录</h3><p>进入训练页，开启真实摄像头或模拟演示，结束训练后会自动生成报告。</p><button class="btn btn-primary" data-action="open-training">立即开始 →</button></div>`}
+    </section><section class="panel"><div class="panel-heading"><h3>最近训练次数</h3><span>LAST 8 SESSIONS</span></div><div class="chart-wrap">${chart.length ? `<div class="bar-chart">${chart.map((s,i)=>`<div class="bar-cell"><span>${s.count}</span><div class="bar ${s.mode==='demo'?'bar-sim':(s.mode==='video'?'bar-video':'')}" style="height:${Math.max(5, Math.round(s.count/max*185))}px"></div><small>${i+1}</small></div>`).join('')}</div><div class="legend"><span class="legend-dot"></span>实时AI <span class="legend-dot dot-video"></span>视频AI <span class="legend-dot sim"></span>模拟</div>` : `<div class="empty-chart">暂无数据，请先完成训练</div>`}</div></section></div>
+    <section class="panel history-panel"><div class="panel-heading"><h3>历史记录</h3><div class="history-actions"><button class="btn btn-sm btn-outline" data-action="export-csv" ${sessions.length?'':'disabled'} title="导出用于 Excel 对照分析的 CSV 表格">⤓ 导出 CSV</button><button class="btn btn-sm btn-outline" data-action="export-json" ${sessions.length?'':'disabled'} title="导出完整 JSON 数据">⤓ 导出 JSON</button><button class="text-danger" data-action="clear-history" ${sessions.length?'':'disabled'}>清空记录</button></div></div><div class="history-table"><div class="history-head"><span>训练日期</span><span>动作</span><span>模式</span><span>有效次数</span><span>用时</span></div>${sessions.length ? sessions.map(s=>`<div class="history-row"><span>${formatDate(s.startedAt)}</span><span>${escapeText(EXERCISES[s.exercise]?.name || s.exercise)}</span><span>${s.mode==='demo'?'模拟':(s.mode==='video'?'视频AI':'实时')}</span><strong>${s.count}</strong><span>${formatTime(s.durationSeconds)}</span></div>`).join('') : '<p class="empty-records">暂无记录</p>'}</div></section>
     <div class="subtle-warning">注意：模拟模式生成的记录会明确标注为「模拟」，不可用作真实 AI 识别准确率实验数据。</div>
   </div>`;
 }
 function aboutPage() {
-  return `<div class="page"><div class="page-heading"><div><div class="eyebrow">ABOUT THE PROJECT / 课程设计</div><h2>项目说明 <span>HOW IT WORKS</span></h2><p>该演示面向 AI 基础课程，重在清楚呈现 AI 模型、规则算法和可复现实验。</p></div><span class="page-tag">OPEN SOURCE DEMO</span></div><div class="about-grid"><section class="panel"><div class="panel-heading"><h3>系统如何运作</h3><span>DATA PIPELINE</span></div><div class="pipeline"><div><b>01</b><span>浏览器摄像头<small>本地视频流</small></span></div><i>↓</i><div><b>02</b><span>MediaPipe AI 模型<small>提取 33 个姿态关键点</small></span></div><i>↓</i><div><b>03</b><span>动作规则状态机<small>角度 · 阶段 · 完整动作</small></span></div><i>↓</i><div><b>04</b><span>训练报告与建议<small>次数统计 · 非医疗性提示</small></span></div></div></section><section class="panel"><div class="panel-heading"><h3>已实现 / 未实现</h3><span>RELEASE V0.1.0</span></div><div class="checklist"><div><span>✓</span> 深蹲、弯举与开合跳计数</div><div><span>✓</span> 摄像头与实时姿态估计接入</div><div><span>✓</span> 演示用幅度阈值和反馈</div><div><span>✓</span> 规则训练建议、本地记录</div><div><span>✓</span> 独立标注的模拟演示模式</div><div class="pending"><span>○</span> 真实设备大样本准确率评测</div><div class="pending"><span>○</span> 专用模型训练与安卓原生端</div><div class="pending"><span>○</span> 医学损伤预测（不做）</div></div></section></div><section class="panel limitations"><div class="panel-heading"><h3>技术边界与隐私</h3><span>PLEASE READ</span></div><div class="limitation-columns"><div><strong>摄像头与模型</strong><p>真实模式需要摄像头授权和首次加载远程模型资源。单目 2D 角度受机位、遮挡与人体差异影响。</p></div><div><strong>模拟模式</strong><p>使用合成关键点而非 AI 检测；仅用于页面展示、回归测试和网络故障时演示流程。</p></div><div><strong>一般健身辅助</strong><p>不估算真实损伤概率，不诊断骨盆、脊柱或关节疾病。疼痛或不适时停止相应运动。</p></div></div></section><div class="source-links"><a href="https://developers.google.com/edge/mediapipe/solutions/vision/pose_landmarker/web_js" target="_blank" rel="noopener noreferrer">MediaPipe Web 官方文档 ↗</a><a href="https://github.com/google-ai-edge/mediapipe" target="_blank" rel="noopener noreferrer">MediaPipe 开源仓库 ↗</a></div></div>`;
+  return `<div class="page"><div class="page-heading"><div><div class="eyebrow">ABOUT THE PROJECT / 课程设计</div><h2>项目说明 <span>HOW IT WORKS</span></h2><p>该演示面向 AI 基础课程，重在清楚呈现 AI 模型、规则算法和可复现实验。</p></div><span class="page-tag">OPEN SOURCE DEMO</span></div><div class="about-grid"><section class="panel"><div class="panel-heading"><h3>系统如何运作</h3><span>DATA PIPELINE</span></div><div class="pipeline"><div><b>01</b><span>浏览器摄像头 / 本地视频<small>视频帧输入</small></span></div><i>↓</i><div><b>02</b><span>MediaPipe AI 模型<small>提取 33 个姿态关键点</small></span></div><i>↓</i><div><b>03</b><span>动作规则状态机<small>角度 · 阶段 · 完整动作</small></span></div><i>↓</i><div><b>04</b><span>训练报告与建议<small>次数统计 · 非医疗性提示</small></span></div></div></section><section class="panel"><div class="panel-heading"><h3>已实现 / 未实现</h3><span>RELEASE V0.1.0</span></div><div class="checklist"><div><span>✓</span> 深蹲、弯举与开合跳动作计数</div><div><span>✓</span> 实时摄像头识别与本地视频评测</div><div><span>✓</span> 演示用幅度阈值、姿态纠错与反馈</div><div><span>✓</span> 规则训练建议、本地记录与 CSV 导出</div><div><span>✓</span> 独立标注的模拟演示模式</div><div class="pending"><span>○</span> 真实设备大样本准确率评测</div><div class="pending"><span>○</span> 专用模型训练与安卓原生端</div><div class="pending"><span>○</span> 医学损伤预测（不做）</div></div></section></div><section class="panel limitations"><div class="panel-heading"><h3>技术边界与隐私</h3><span>PLEASE READ</span></div><div class="limitation-columns"><div><strong>摄像头与模型</strong><p>真实模式需要摄像头授权和首次加载远程模型资源。单目 2D 角度受机位、遮挡与人体差异影响。</p></div><div><strong>模拟模式</strong><p>使用合成关键点而非 AI 检测；仅用于页面展示、回归测试和网络故障时演示流程。</p></div><div><strong>一般健身辅助</strong><p>不估算真实损伤概率，不诊断骨盆、脊柱或关节疾病。疼痛或不适时停止相应运动。</p></div></div></section><div class="source-links"><a href="https://developers.google.com/edge/mediapipe/solutions/vision/pose_landmarker/web_js" target="_blank" rel="noopener noreferrer">MediaPipe Web 官方文档 ↗</a><a href="https://github.com/google-ai-edge/mediapipe" target="_blank" rel="noopener noreferrer">MediaPipe 开源仓库 ↗</a></div></div>`;
 }
 
 function refreshModeUI() {
   const stage = document.querySelector('#cameraStage'); if (!stage) return;
   stage.classList.toggle('simulating', state.mode === 'demo');
-  stage.classList.toggle('camera-live', state.mode === 'camera');
+  stage.classList.toggle('camera-live', state.mode === 'camera' || state.mode === 'video');
   const pill = document.querySelector('#modePill');
-  pill.textContent = state.mode === 'demo' ? '● 模拟输入 · 非 AI' : state.mode === 'camera' ? (state.modelReady ? '● 真实 AI 识别' : '◌ AI 模型加载中') : '● 等待开始';
-  pill.className = `mode-pill ${state.mode==='demo'?'pill-demo':''} ${state.mode==='camera'?'pill-live':''}`;
+  pill.textContent = state.mode === 'demo' ? '● 模拟输入 · 非 AI'
+    : state.mode === 'video' ? (state.modelReady ? '● 本地视频 · 真实 AI 识别' : '◌ AI 模型加载中')
+    : state.mode === 'camera' ? (state.modelReady ? '● 真实 AI 识别' : '◌ AI 模型加载中')
+    : '● 等待开始';
+  pill.className = `mode-pill ${state.mode==='demo'?'pill-demo':''} ${(state.mode==='camera'||state.mode==='video')?'pill-live':''}`;
   const startCamBtn = document.querySelector('#startCamera');
   if (startCamBtn) {
     startCamBtn.disabled = !!state.mode;
     startCamBtn.innerHTML = state.mode === 'camera' && !state.modelReady ? '⏳ 正在连接…' : '◉ &nbsp; 启动 AI 摄像头';
+  }
+  const startVideoBtn = document.querySelector('#startVideo');
+  if (startVideoBtn) {
+    startVideoBtn.disabled = !!state.mode;
+    startVideoBtn.innerHTML = state.mode === 'video' && !state.modelReady ? '⏳ 正在载入…' : '🎞 &nbsp; 本地视频评测';
   }
   document.querySelector('#startDemo').disabled = !!state.mode;
   document.querySelector('#pauseBtn').disabled = !state.mode;
@@ -150,7 +158,10 @@ function refreshModeUI() {
   const targetSelect = document.querySelector('#targetRepsSelect');
   if (diffSelect) diffSelect.disabled = !!state.mode;
   if (targetSelect) targetSelect.disabled = !!state.mode;
-  document.querySelector('#stageIndicator').textContent = state.mode === 'demo' ? 'SIMULATED' : state.mode === 'camera' ? (state.modelReady ? 'AI CAMERA' : 'LOADING MODEL') : 'STANDBY';
+  document.querySelector('#stageIndicator').textContent = state.mode === 'demo' ? 'SIMULATED'
+    : state.mode === 'video' ? (state.modelReady ? 'VIDEO AI' : 'LOADING MODEL')
+    : state.mode === 'camera' ? (state.modelReady ? 'AI CAMERA' : 'LOADING MODEL')
+    : 'STANDBY';
   const perfTag = document.querySelector('#perfIndicator');
   if (perfTag) perfTag.textContent = state.mode ? `${state.fps || '--'} FPS` : '-- FPS';
 }
@@ -195,13 +206,42 @@ function activeSeconds() {
   if (!state.mode) return 0;
   return Math.max(0, Math.floor((performance.now() - state.startPerf - state.pauseDuration - (state.paused ? performance.now() - state.pauseAt : 0)) / 1000));
 }
+function playChime(isGoal = false) {
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    const now = ctx.currentTime;
+    if (isGoal) {
+      osc.frequency.setValueAtTime(523.25, now);
+      osc.frequency.setValueAtTime(659.25, now + 0.1);
+      osc.frequency.setValueAtTime(783.99, now + 0.2);
+      osc.frequency.setValueAtTime(1046.50, now + 0.3);
+      gain.gain.setValueAtTime(0.18, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.start(now); osc.stop(now + 0.8);
+    } else {
+      osc.frequency.setValueAtTime(880, now);
+      osc.frequency.exponentialRampToValueAtTime(1320, now + 0.12);
+      gain.gain.setValueAtTime(0.14, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.start(now); osc.stop(now + 0.35);
+    }
+  } catch {}
+}
+
 function onResult(landmarks, time) {
   const joint = extractJointAngle(landmarks, state.exercise, {
     preferredSide: state.analyzer.activeSide,
     hysteresis: 0.12
   });
   state.currentHighlightJoints = joint?.ids || null;
-  if (state.mode === 'camera' && landmarks?.length) state.trackedFrames++;
+  if ((state.mode === 'camera' || state.mode === 'video') && landmarks?.length) state.trackedFrames++;
   const snapshot = state.analyzer.update({
     angle: joint?.angle ?? null,
     visible: !!joint,
@@ -211,6 +251,9 @@ function onResult(landmarks, time) {
   });
   updateTrainingUI(snapshot);
   if (snapshot.event) {
+    if (snapshot.event.type === 'success') {
+      playChime(snapshot.event.isGoalAchieved);
+    }
     if (snapshot.event.isGoalAchieved) {
       state.targetAchieved = true;
       toast('🎉 恭喜达成目标！已完成本次设定的训练次数！');
@@ -257,7 +300,7 @@ function renderFrame(now) {
       label: 'SYNTHETIC POSE · NOT AI',
       highlightJoints: state.currentHighlightJoints
     });
-  } else if (state.mode === 'camera' && state.detector) {
+  } else if ((state.mode === 'camera' || state.mode === 'video') && state.detector) {
     const video = document.querySelector('#liveVideo');
     if (!video || video.readyState < 2 || video.videoWidth === 0) return;
     if (video.currentTime === state.lastVideoTime) return;
@@ -286,10 +329,17 @@ function stopRealtime() {
   state.frame = 0;
   if (state.stream) { state.stream.getTracks().forEach(track=>track.stop()); state.stream=null; }
   if (state.detector) { try { state.detector.close(); } catch {} state.detector=null; }
-  const video = document.querySelector('#liveVideo'); if (video) video.srcObject = null;
+  if (state.videoUrl) { URL.revokeObjectURL(state.videoUrl); state.videoUrl = null; }
+  state.videoFile = null;
+  const video = document.querySelector('#liveVideo');
+  if (video) {
+    video.srcObject = null;
+    video.src = '';
+    video.onended = null;
+  }
   if (window.speechSynthesis) window.speechSynthesis.cancel();
 }
-async function begin(mode) {
+async function begin(mode, file = null) {
   if (state.mode) return;
   state.mode = mode; state.running = true; state.paused = false;
   state.startWall = Date.now(); state.startPerf = performance.now();
@@ -303,6 +353,50 @@ async function begin(mode) {
     inform('模拟输入已开始：每 4 个动作周期包含 1 次不完整幅度，便于检验纠错逻辑。');
     state.frame = requestAnimationFrame(renderFrame);
     return;
+  }
+  if (mode === 'video') {
+    if (!file) {
+      stopRealtime(); state.mode = null; refreshModeUI();
+      return;
+    }
+    state.videoFile = file;
+    state.videoUrl = URL.createObjectURL(file);
+    inform('正在载入本地视频文件并初始化 MediaPipe 模型…');
+    modelMessage('正在加载本地视频与人体姿态识别模型…');
+    try {
+      const video = document.querySelector('#liveVideo');
+      if (!video) throw new Error('训练页面已关闭');
+      video.srcObject = null;
+      video.src = state.videoUrl;
+      video.loop = false;
+      await video.play();
+
+      modelMessage('本地视频已就绪，正在准备姿态估计模型…');
+      const { detector, isLocalModel } = await createPoseLandmarker();
+      if (run !== state.activeRunId) { detector.close(); return; }
+      state.detector = detector; state.modelReady = true;
+      state.startWall = Date.now(); state.startPerf = performance.now();
+      refreshModeUI();
+      const sourceText = isLocalModel ? '真正的 MediaPipe 姿态模型（本地离线模型）已就绪。' : '真正的 MediaPipe 姿态模型已从网络加载就绪。';
+      modelMessage(`${sourceText}正在对选定视频进行真实 AI 动作评测。`, 'success');
+      inform('已开始对本地视频进行逐帧姿态识别与动作计数分析。');
+      const stage = document.querySelector('#cameraStage');
+      stage?.classList.remove('mirror');
+
+      video.onended = () => {
+        inform('视频已播放完毕。可点击「结束训练」查看本次评测报告。', 'info');
+      };
+      state.frame = requestAnimationFrame(renderFrame);
+      return;
+    } catch (error) {
+      console.error('Video / MediaPipe evaluation startup failure', error);
+      stopRealtime(); state.mode = null; state.paused = false; state.modelReady = false;
+      refreshModeUI();
+      modelMessage(`视频评测启动失败：${String(error.message || error)}`, 'error');
+      inform('无法分析视频文件。请确认格式支持（建议 MP4/WebM）或使用模拟演示模式。', 'warning');
+      drawIdle(document.querySelector('#poseCanvas'));
+      return;
+    }
   }
   inform('正在申请摄像头权限，并加载真正的人体姿态模型…');
   modelMessage('初始化中：需要 HTTPS/localhost、摄像头授权及可访问模型的网络连接。');
@@ -340,15 +434,26 @@ async function begin(mode) {
 }
 function togglePause() {
   if (!state.mode) return;
-  if (!state.paused) { state.paused=true; state.pauseAt=performance.now(); inform('已暂停分析和计数。'); }
-  else { state.pauseDuration += performance.now()-state.pauseAt; state.paused=false; state.lastFrame=0; inform('已继续训练。'); }
+  const video = document.querySelector('#liveVideo');
+  if (!state.paused) {
+    state.paused = true;
+    state.pauseAt = performance.now();
+    if (video && state.mode === 'video') video.pause();
+    inform('已暂停分析和计数（按空格键继续）。');
+  } else {
+    state.pauseDuration += performance.now() - state.pauseAt;
+    state.paused = false;
+    state.lastFrame = 0;
+    if (video && state.mode === 'video') video.play();
+    inform('已继续训练。');
+  }
   refreshModeUI();
 }
 function finishSession() {
   if (!state.mode) return;
-  if (state.mode === 'camera' && !state.modelReady) {
+  if ((state.mode === 'camera' || state.mode === 'video') && !state.modelReady) {
     stopRealtime(); state.mode = null; state.paused = false; state.modelReady = false;
-    toast('模型尚未加载完成，本次未保存为真实训练');
+    toast('模型尚未加载完成，本次未保存为训练记录');
     return null;
   }
   const seconds = activeSeconds();
@@ -359,7 +464,7 @@ function finishSession() {
     exercise: state.exercise, mode: state.mode,
     count: snapshot.count, partialCount: snapshot.partialCount,
     durationSeconds: seconds, goal: state.goal, fatigue: state.fatigue,
-    trackedFrames: state.mode === 'camera' ? state.trackedFrames : 0,
+    trackedFrames: (state.mode === 'camera' || state.mode === 'video') ? state.trackedFrames : 0,
     warningCount: state.warningLogs.filter(e=>e.type==='warning').length,
     faultCounts: snapshot.faultCounts
   };
@@ -385,6 +490,11 @@ document.addEventListener('click', async event => {
     case 'quick-demo': setView('training'); await begin('demo'); break;
     case 'start-demo': await begin('demo'); break;
     case 'start-camera': await begin('camera'); break;
+    case 'select-video': {
+      const fileInput = document.querySelector('#videoFileInput');
+      if (fileInput) fileInput.click();
+      break;
+    }
     case 'pause': togglePause(); break;
     case 'end': finishSession(); setView('reports'); break;
     case 'test-voice': {
@@ -436,6 +546,11 @@ document.addEventListener('change', event=>{
     state.targetReps = Number(value);
     state.analyzer.configure(state.exercise, { difficulty: state.difficulty, targetReps: state.targetReps });
     updateTrainingUI();
+  }
+  if(id==='videoFileInput') {
+    const file = event.target.files?.[0];
+    if (file) begin('video', file);
+    event.target.value = '';
   }
 });
 window.addEventListener('keydown', event => {

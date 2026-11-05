@@ -38,12 +38,13 @@ test('advice depends on fatigue, incomplete reps, no reps and goal',()=>{
 test('session export generates valid CSV with BOM and JSON', () => {
   const sample = [
     { ...record, count: 12, faultCounts: { trunk_lean: 1, arm_swing: 0 } },
-    { ...record, id: '2', exercise: 'jumping_jack', count: 20, faultCounts: { arm_asymmetry: 1 } }
+    { ...record, id: '2', exercise: 'jumping_jack', mode: 'video', count: 20, faultCounts: { arm_asymmetry: 1 } }
   ];
   const csv = exportSessionsCSV(sample);
   assert.ok(csv.startsWith('\uFEFF'));
   assert.match(csv, /深蹲/);
   assert.match(csv, /开合跳/);
+  assert.match(csv, /本地视频AI/);
   assert.match(csv, /"20"/);
 
   const jsonStr = exportSessionsJSON(sample);

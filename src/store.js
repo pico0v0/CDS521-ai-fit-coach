@@ -52,7 +52,7 @@ export function exportSessionsCSV(sessions) {
     s.startedAt,
     s.exercise === 'squat' ? '深蹲' : (s.exercise === 'curl' ? '哑铃弯举' : '开合跳'),
     s.exercise,
-    s.mode === 'demo' ? '模拟演示' : '真实摄像头',
+    s.mode === 'demo' ? '模拟演示' : (s.mode === 'video' ? '本地视频AI' : '真实摄像头'),
     s.count,
     s.partialCount || 0,
     s.faultCounts?.trunk_lean || 0,
