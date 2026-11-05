@@ -1,0 +1,133 @@
+Automatic checks run at: 2026-11-05 03:28:28 UTC
+
+$ npm run check
+Exit code: 0
+
+> ai-fit-coach-course-demo@0.1.0 check
+> node --check src/app.js && node --check src/exercise.js && node --check src/pose.js && node --check src/simulator.js && node --check src/store.js && node --check src/draw.js
+
+
+
+
+
+$ npm test
+Exit code: 0
+
+> ai-fit-coach-course-demo@0.1.0 test
+> node --test tests/*.test.mjs
+
+TAP version 13
+# Subtest: 2D angle geometry, invalid and degenerate landmarks
+ok 1 - 2D angle geometry, invalid and degenerate landmarks
+  ---
+  duration_ms: 1.500981
+  type: 'test'
+  ...
+# Subtest: synthetic landmarks have measurable squat and curl joint angles
+ok 2 - synthetic landmarks have measurable squat and curl joint angles
+  ---
+  duration_ms: 0.732279
+  type: 'test'
+  ...
+# Subtest: low visibility and missing landmarks do not produce fake measurements
+ok 3 - low visibility and missing landmarks do not produce fake measurements
+  ---
+  duration_ms: 0.175799
+  type: 'test'
+  ...
+# Subtest: squat: counts 3 complete and flags one shallow in 4 synthetic cycles
+ok 4 - squat: counts 3 complete and flags one shallow in 4 synthetic cycles
+  ---
+  duration_ms: 7.030443
+  type: 'test'
+  ...
+# Subtest: squat: static pose never counts
+ok 5 - squat: static pose never counts
+  ---
+  duration_ms: 0.336406
+  type: 'test'
+  ...
+# Subtest: squat: loss of pose interrupts rep
+ok 6 - squat: loss of pose interrupts rep
+  ---
+  duration_ms: 0.222447
+  type: 'test'
+  ...
+# Subtest: squat: long gap does not complete an unfinished rep
+ok 7 - squat: long gap does not complete an unfinished rep
+  ---
+  duration_ms: 0.23731
+  type: 'test'
+  ...
+# Subtest: curl: counts 3 complete and flags one shallow in 4 synthetic cycles
+ok 8 - curl: counts 3 complete and flags one shallow in 4 synthetic cycles
+  ---
+  duration_ms: 2.707597
+  type: 'test'
+  ...
+# Subtest: curl: static pose never counts
+ok 9 - curl: static pose never counts
+  ---
+  duration_ms: 0.404446
+  type: 'test'
+  ...
+# Subtest: curl: loss of pose interrupts rep
+ok 10 - curl: loss of pose interrupts rep
+  ---
+  duration_ms: 0.498735
+  type: 'test'
+  ...
+# Subtest: curl: long gap does not complete an unfinished rep
+ok 11 - curl: long gap does not complete an unfinished rep
+  ---
+  duration_ms: 0.196149
+  type: 'test'
+  ...
+# Subtest: timestamps must be increasing; invalid exercise rejected
+ok 12 - timestamps must be increasing; invalid exercise rejected
+  ---
+  duration_ms: 0.352419
+  type: 'test'
+  ...
+# Subtest: simulated angle exercises have planned shallow cycles
+ok 13 - simulated angle exercises have planned shallow cycles
+  ---
+  duration_ms: 0.128089
+  type: 'test'
+  ...
+# Subtest: session persistence is local, bounded, and clearable
+ok 14 - session persistence is local, bounded, and clearable
+  ---
+  duration_ms: 4.58386
+  type: 'test'
+  ...
+# Subtest: corrupted and untrusted local records are ignored
+ok 15 - corrupted and untrusted local records are ignored
+  ---
+  duration_ms: 0.240924
+  type: 'test'
+  ...
+# Subtest: advice depends on fatigue, incomplete reps, no reps and goal
+ok 16 - advice depends on fatigue, incomplete reps, no reps and goal
+  ---
+  duration_ms: 0.286232
+  type: 'test'
+  ...
+1..16
+# tests 16
+# suites 0
+# pass 16
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 91.310703
+
+
+
+
+$ node scripts/smoke.mjs
+Exit code: 0
+HTTP smoke PASS: routes, MIME, protected paths, 404
+
+
