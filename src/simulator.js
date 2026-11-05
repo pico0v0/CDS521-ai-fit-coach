@@ -80,33 +80,47 @@ export function simulatePose(elapsedMs, exerciseId, options = {}) {
   } else if (exerciseId === 'squat') {
     const angleDeg = simulatedAngle(elapsedMs, exerciseId);
     const squatRatio = Math.max(0, Math.min(1, (174 - angleDeg) / (174 - 91)));
-    const kneeX = .6, kneeY = .66;
-    const hipX = kneeX - .18 * Math.sin(angle), hipY = kneeY + .18 * Math.cos(angle);
+    const ankleX = .54, ankleY = .88;
+    const shinLen = .24, thighLen = .23, torsoLen = .26;
+
+    // 1. Shin moves forward-up from ankle (dorsiflexion, 3° upright -> 21° at bottom)
+    const shinTiltRad = (3 + 18 * squatRatio) * Math.PI / 180;
+    const kneeX = ankleX - shinLen * Math.sin(shinTiltRad);
+    const kneeY = ankleY - shinLen * Math.cos(shinTiltRad);
+
+    // 2. Thigh folds backward from knee to maintain exact biomechanical angleDeg
+    const vKA_x = ankleX - kneeX;
+    const vKA_y = ankleY - kneeY;
+    const alpha = Math.atan2(vKA_y, vKA_x);
+    const hipAngle = alpha - angleDeg * Math.PI / 180;
+    const hipX = kneeX + thighLen * Math.cos(hipAngle);
+    const hipY = kneeY + thighLen * Math.sin(hipAngle);
+
     put(points, 23, hipX, hipY); put(points, 24, hipX + .025, hipY);
-    put(points, 25, kneeX, kneeY); put(points, 26, kneeX + .026, kneeY);
-    put(points, 27, kneeX, .89); put(points, 28, kneeX + .025, .89);
-    put(points, 29, kneeX - .025, .90); put(points, 30, kneeX + .007, .90);
+    put(points, 25, kneeX, kneeY); put(points, 26, kneeX + .025, kneeY);
+    put(points, 27, ankleX, ankleY); put(points, 28, ankleX + .025, ankleY);
+    put(points, 29, ankleX + .035, ankleY + .01); put(points, 30, ankleX + .060, ankleY + .01); // heels back
+    put(points, 31, ankleX - .050, ankleY + .01); put(points, 32, ankleX - .025, ankleY + .01); // toes forward
 
-    // Natural forward torso lean to balance hips backward, plus fault lean
-    const faultLean = injectFault ? 0.22 : 0;
-    const baseLean = 0.09 * squatRatio;
-    const shoulderX = hipX - 0.02 + baseLean + faultLean;
-    const shoulderY = hipY - 0.25 + 0.02 * squatRatio + (injectFault ? 0.04 : 0);
-    put(points, 11, shoulderX, shoulderY);
-    put(points, 12, shoulderX + .025, shoulderY);
+    // 3. Torso: parallel to shin (biomechanical dual-parallel standard), plus fault lean
+    const faultLean = injectFault ? 0.16 : 0;
+    const torsoTiltRad = (3 + 20 * squatRatio) * Math.PI / 180;
+    const shoulderX = hipX - torsoLen * Math.sin(torsoTiltRad) - faultLean;
+    const shoulderY = hipY - torsoLen * Math.cos(torsoTiltRad) + (injectFault ? 0.04 : 0);
+    put(points, 11, shoulderX, shoulderY); put(points, 12, shoulderX + .025, shoulderY);
 
-    // Arms raise forward to counterbalance squat; drop naturally when standing
+    // 4. Arms: extended forward horizontally to counterbalance hips
     const armRise = squatRatio;
-    const elbowX = shoulderX + 0.02 + 0.10 * armRise;
-    const elbowY = shoulderY + 0.12 - 0.08 * armRise;
-    const wristX = shoulderX + 0.03 + 0.21 * armRise;
-    const wristY = shoulderY + 0.23 - 0.20 * armRise;
+    const elbowX = shoulderX - 0.02 - 0.10 * armRise;
+    const elbowY = shoulderY + 0.12 - 0.10 * armRise;
+    const wristX = shoulderX - 0.03 - 0.21 * armRise;
+    const wristY = shoulderY + 0.23 - 0.21 * armRise;
     put(points, 13, elbowX, elbowY); put(points, 14, elbowX + .025, elbowY);
     put(points, 15, wristX, wristY); put(points, 16, wristX + .025, wristY);
 
-    // Head placed naturally above shoulders
-    const headX = shoulderX + 0.03 + 0.04 * squatRatio + (injectFault ? 0.05 : 0);
-    const headY = shoulderY - 0.10;
+    // 5. Head: naturally aligned with spine looking forward-down
+    const headX = shoulderX - 0.05 - 0.02 * squatRatio - (injectFault ? 0.05 : 0);
+    const headY = shoulderY - 0.09;
     put(points, 0, headX, headY);
   } else {
     const elbowX = .57, elbowY = .51;
