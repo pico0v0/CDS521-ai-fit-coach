@@ -1,5 +1,40 @@
 # CHANGELOG（每轮 AI 必须追加）
 
+## v0.2.1-r4 — 第四轮 P1 专项修复：测试套件假阳性消除、CSV 误差导出一致性、动作时序与侧别锁定加固（2026-11-05）
+
+### 已修复问题（P1 专项与工程完善）
+- **P1-TEST-001 [P1/测试可靠性] 修复安全测试假阳性与交互挂起**：
+  - `scripts/test_package_security.py`：场景 6 移除 `shell=True`，改用 `shell=False`、显式 `stdin=subprocess.DEVNULL` 与 `timeout=20`，严格核验进程退出码 0 与标准输出中的 `HTTP smoke PASS` 成功标记；
+  - 增补场景 7 负向回归测试（Negative Regression Test）：构造必然抛出异常的冒烟测试脚本，断言测试套件能敏锐检出非零退出码与错误信息，杜绝假阳性；
+  - `scripts/package.py`：`run(cmd)` 增加 `stdin=subprocess.DEVNULL` 与 `timeout=60`，消除常规终端运行下可能出现的子进程 stdin 阻塞挂起。
+- **P1-DATA-CSV [P1/学术一致性] 确保 MAE 看板与 CSV 导出逐行绝对误差完全一致**：
+  - `src/store.js`：实现统一的 `deriveVerifiedAbsError(session)` 纯函数，仅在 `count` 与 `manualCount` 均为有效非负整数时计算 `Math.abs(count - manualCount)`；未人工核验的会话严格输出空字符串 `""`，绝不虚假填充 `0`；
+  - `exportSessionsCSV` 全面改用 `deriveVerifiedAbsError`，杜绝因旧数据持久化了负数或脏数据导致的负数误差导出；
+  - `tests/store.test.mjs`：增加单测断言未标注记录绝对误差为空、负数脏数据自愈纠偏，且 CSV 导出行误差均值与 `computeMaeStats().realMae` 完全一致。
+- **R-003 [P1/视频评测] 视频分析启动时序加固（第 0 秒等待模型就绪）**：
+  - `src/app.js`：修复“视频先播放、后加载 AI 模型”的竞态问题。选择视频后先暂停在第 0 秒并读取元数据，待 MediaPipe 模型完全下载并初始化就绪后，重置 `video.currentTime = 0`，再与推理循环同步启动播放，确保视频开头的每个动作帧均被可靠捕获分析。
+- **R-004 [P1/误计数] 动作侧别硬锁定与跨侧跳变阻断**：
+  - `src/exercise.js`：在动作进行中（`inRep === true`）增加侧别硬锁定保护，若检测到关键点侧别突然切换（如左腿深蹲屈曲尚未完成却跳变到伸直的右腿），立即中断重置当前动作并发出警示，严禁借用对侧角度拼接虚假完成动作；
+  - `extractJointAngle` 签名扩展兼容 `{ preferredSide, hysteresis }` 对象参数与历史字符串参数；
+  - `tests/exercise.test.mjs`：增加 `BUG02` 复现单测（不对称双腿 + 一侧遮挡 + 对侧恢复），验证系统计数严格为 0。
+- **R-005 [P1/规则定义] 开合跳双下肢开合协同约束**：
+  - `src/exercise.js`：实现 `getLegSpreadRatio` 提取双脚踝相对于骨盆的归一化开合比；
+  - 在开合跳动作计数中，若追踪到下肢关键点，必须满足双臂展开（腕部高度/肩角达标）与双腿充分展开（归一化腿部开合比达到阈值）双重协同，方计为有效开合跳；若腿部完全静止仅摆动手臂，判定为未达标而不予计数；
+  - `tests/exercise.test.mjs`：增加 `BUG03` 复现单测，验证 4 个周期腿部固定的摆臂动作计数严格为 0。
+- **R-006 [P1/提示时序] 首次姿态异常提示免冷却即时触发**：
+  - `src/exercise.js`：修复 `this.lastFaultTimes[fault.code] || 0` 导致的会话前 3 秒（`timestamp < 3000`）首次异常被误杀抑制的问题；改为首次发生即刻报告，之后才按 3 秒冷却节流；
+  - `tests/exercise.test.mjs`：增加 `BUG04` 复现单测，验证 `timestamp = 100~2300ms` 下注入的姿态异常能够即时捕获触发。
+- **R-010 [P2/退化几何] 提前过滤退化重合骨架**：
+  - `src/exercise.js`：在 `angleDegrees` 返回 `null` 或角度 `< 5°` 时，`extractJointAngle` 严格返回 `null`，不再因 `null + null = 0` 错误返回伪造的 0°；
+  - `tests/exercise.test.mjs`：增加 `BUG01` 复现单测。
+- **R-008 [P1/离线说明] 纠正“完全离线”宣称，明确运行时加载边界**：
+  - `scripts/download_models.py` 与 `src/pose.js`：修正文档与终端提示，如实声明本地 `/models/` 离线缓存仅包含 `.task` 视觉模型与 WASM 算子；在未缓存浏览器首度加载时仍需公网下载 ESM 运行库；离线答辩推荐提前预热或使用模拟模式。
+- **R-009 [P1/学术口径] 动态实算浅动作召回率，消除主线程无阻塞绝对宣称**：
+  - `scripts/benchmark.mjs`：实算浅动作召回率（`shallowRecallPct`），用实算数字替代硬编码的 "100%"；
+  - 修正性能宣称，中性标明“纯算法规则吞吐能力（CPU 状态机基准）”，指引实机性能参考运行时面板。
+- **R-013 [P2/性能指标] 分离渲染 FPS 与 AI 推理 FPS / 耗时**：
+  - `src/app.js`：实时性能指示标签独立显示「渲染 FPS」、「AI 推理 FPS」和「推理耗时」，避免将 60 FPS 渲染帧率混淆为 AI 推理帧率。
+
 ## v0.2.1-r3 — 第三轮 P0 最终闭环：目录符号链接边界防御、零源码扫描豁免与烟测清理可靠性（2026-11-05）
 
 ### 已修复问题（P0 彻底闭环与交付可靠性）

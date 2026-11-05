@@ -82,6 +82,9 @@ export function runAllBenchmarks() {
 
   const totalAbsError = results.reduce((sum, r) => sum + r.absError, 0);
   const overallMAE = (totalAbsError / results.length).toFixed(3);
+  const totalExpectedShallow = results.reduce((sum, r) => sum + r.expectedShallowReps, 0);
+  const totalDetectedShallow = results.reduce((sum, r) => sum + Math.min(r.countedShallow, r.expectedShallowReps), 0);
+  const shallowRecallPct = totalExpectedShallow > 0 ? (totalDetectedShallow / totalExpectedShallow * 100).toFixed(1) + '%' : 'N/A';
 
   // Generate Markdown report
   const tableRows = results.map(r =>
@@ -99,8 +102,8 @@ export function runAllBenchmarks() {
 
 - **总评测样本轮次**：${results.length} 组独立长时序列
 - **全场景平均绝对误差（Overall MAE）**：**${overallMAE}**（基准达标）
-- **浅动作识别准确率（Shallow Rep Recall）**：**100%**（未达演示阈值动作均被准确判定为 partial 不予计数）
-- **算法纯计算吞吐能力**：**> 1,500 FPS**（完全不占用 GPU，主线程无任何阻塞风险）
+- **浅动作识别召回率（Shallow Rep Recall）**：**${shallowRecallPct}**（实算：检出 ${totalDetectedShallow}/${totalExpectedShallow}，未达演示阈值动作均被判定为 partial 不予计数）
+- **纯算法规则吞吐能力**：**> 1,500 FPS**（纯 CPU 状态机基准测试；实机浏览器 MediaPipe 推理耗时与 FPS 请参考实机运行面板）
 
 ---
 

@@ -45,25 +45,34 @@ export function makeAdvice(record, goal, fatigue) {
   return `本次记录 ${record.count} 次完整动作。建议下次继续${goals[goal] || goals.habit}；可维持相近训练量，根据实际感受逐步调整。${faultSuffix}视频检测并非专业动作诊断。`;
 }
 
+export function deriveVerifiedAbsError(s) {
+  if (
+    !s ||
+    typeof s.count !== 'number' || !Number.isInteger(s.count) || s.count < 0 ||
+    typeof s.manualCount !== 'number' || !Number.isInteger(s.manualCount) || s.manualCount < 0
+  ) {
+    return null;
+  }
+  return Math.abs(s.count - s.manualCount);
+}
+
 export function computeMaeStats(sessions = []) {
   const realEvaluated = (sessions || []).filter(s =>
     (s.mode === 'camera' || s.mode === 'video') &&
-    typeof s.count === 'number' && Number.isInteger(s.count) && s.count >= 0 &&
-    typeof s.manualCount === 'number' && Number.isInteger(s.manualCount) && s.manualCount >= 0 &&
+    deriveVerifiedAbsError(s) !== null &&
     typeof s.trackedFrames === 'number' && Number.isFinite(s.trackedFrames) && s.trackedFrames >= 5
   ).map(s => ({
     ...s,
     // Strictly compute verified non-negative absolute error from verified count and manualCount
-    verifiedAbsError: Math.abs(s.count - s.manualCount)
+    verifiedAbsError: deriveVerifiedAbsError(s)
   }));
 
   const demoEvaluated = (sessions || []).filter(s =>
     s.mode === 'demo' &&
-    typeof s.count === 'number' && Number.isInteger(s.count) && s.count >= 0 &&
-    typeof s.manualCount === 'number' && Number.isInteger(s.manualCount) && s.manualCount >= 0
+    deriveVerifiedAbsError(s) !== null
   ).map(s => ({
     ...s,
-    verifiedAbsError: Math.abs(s.count - s.manualCount)
+    verifiedAbsError: deriveVerifiedAbsError(s)
   }));
 
   const realMae = realEvaluated.length
@@ -83,24 +92,28 @@ export function computeMaeStats(sessions = []) {
 
 export function exportSessionsCSV(sessions) {
   const headers = ['ID', '训练时间', '动作名称', '动作代码', '运行模式', '跟踪有效帧数', '系统有效次数', '未达幅度次数', '人工核验达标次数', '绝对误差', '躯干前倾次数', '大臂借力次数', '双臂不对称次数', '训练时长(秒)', '训练目标', '主观疲劳'];
-  const rows = (sessions || []).map(s => [
-    s.id,
-    s.startedAt,
-    s.exercise === 'squat' ? '深蹲' : (s.exercise === 'curl' ? '哑铃弯举' : '开合跳'),
-    s.exercise,
-    s.mode === 'demo' ? '模拟演示' : (s.mode === 'video' ? '本地视频AI' : '真实摄像头'),
-    s.trackedFrames || 0,
-    s.count,
-    s.partialCount || 0,
-    Number.isFinite(s.manualCount) ? s.manualCount : '',
-    Number.isFinite(s.absError) ? s.absError : '',
-    s.faultCounts?.trunk_lean || 0,
-    s.faultCounts?.arm_swing || 0,
-    s.faultCounts?.arm_asymmetry || 0,
-    s.durationSeconds,
-    s.goal || 'habit',
-    s.fatigue || 'normal'
-  ].map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','));
+  const rows = (sessions || []).map(s => {
+    const verifiedError = deriveVerifiedAbsError(s);
+    const hasManual = typeof s.manualCount === 'number' && Number.isInteger(s.manualCount) && s.manualCount >= 0;
+    return [
+      s.id,
+      s.startedAt,
+      s.exercise === 'squat' ? '深蹲' : (s.exercise === 'curl' ? '哑铃弯举' : '开合跳'),
+      s.exercise,
+      s.mode === 'demo' ? '模拟演示' : (s.mode === 'video' ? '本地视频AI' : '真实摄像头'),
+      s.trackedFrames || 0,
+      s.count,
+      s.partialCount || 0,
+      hasManual ? s.manualCount : '',
+      verifiedError !== null ? verifiedError : '',
+      s.faultCounts?.trunk_lean || 0,
+      s.faultCounts?.arm_swing || 0,
+      s.faultCounts?.arm_asymmetry || 0,
+      s.durationSeconds,
+      s.goal || 'habit',
+      s.fatigue || 'normal'
+    ].map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',');
+  });
 
   // Prepend UTF-8 BOM so Excel opens Chinese text properly
   return '\uFEFF' + [headers.join(','), ...rows].join('\r\n');

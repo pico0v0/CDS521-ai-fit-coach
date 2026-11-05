@@ -276,16 +276,19 @@ function renderFrame(now) {
   state.frame = requestAnimationFrame(renderFrame);
   if (state.paused) return;
 
-  // Real-time FPS monitoring
+  // Real-time FPS monitoring (R-013: separate render FPS and AI inference FPS)
   if (!state.fpsLastTime) state.fpsLastTime = now;
   state.fpsFrames++;
   if (now - state.fpsLastTime >= 1000) {
-    state.fps = Math.round((state.fpsFrames * 1000) / (now - state.fpsLastTime));
+    state.renderFps = Math.round((state.fpsFrames * 1000) / (now - state.fpsLastTime));
+    state.inferFps = Math.round(((state.inferFrames || 0) * 1000) / (now - state.fpsLastTime));
     state.fpsFrames = 0;
+    state.inferFrames = 0;
     state.fpsLastTime = now;
     const perfTag = document.querySelector('#perfIndicator');
     if (perfTag && state.mode) {
-      perfTag.textContent = `${state.fps} FPS · ${state.latencyMs ? state.latencyMs + 'ms' : '0ms'}`;
+      const modeLabel = state.mode === 'demo' ? '演示' : 'AI推理';
+      perfTag.textContent = `渲染 ${state.renderFps} FPS · ${modeLabel} ${state.inferFps} FPS · 耗时 ${state.latencyMs ? state.latencyMs + 'ms' : '0ms'}`;
     }
   }
 
@@ -295,6 +298,7 @@ function renderFrame(now) {
   if (!canvas) return;
 
   if (state.mode === 'demo') {
+    state.inferFrames = (state.inferFrames || 0) + 1;
     const elapsed = now - state.startPerf - state.pauseDuration;
     const landmarks = simulatePose(elapsed, state.exercise, { simulateFault: true });
     const snapshot = onResult(landmarks, now);
@@ -314,6 +318,7 @@ function renderFrame(now) {
       const t0 = performance.now();
       const result = state.detector.detectForVideo(video, now);
       state.latencyMs = Math.round(performance.now() - t0);
+      state.inferFrames = (state.inferFrames || 0) + 1;
       const landmarks = result.landmarks?.[0] || null;
       const snapshot = onResult(landmarks, now);
       drawPose(canvas, landmarks, {
@@ -376,17 +381,31 @@ async function begin(mode, file = null) {
       video.srcObject = null;
       video.src = state.videoUrl;
       video.loop = false;
-      await video.play();
+      video.pause();
+      video.currentTime = 0;
 
-      modelMessage('本地视频已就绪，正在准备姿态估计模型…');
+      // Ensure video metadata is loaded before loading model, keeping video paused at 0s (R-003)
+      await new Promise((resolve, reject) => {
+        if (video.readyState >= 1) return resolve();
+        video.onloadedmetadata = () => resolve();
+        video.onerror = () => reject(new Error('视频元数据解析失败，请检查文件格式'));
+      });
+      video.pause();
+      video.currentTime = 0;
+
+      modelMessage('本地视频已暂停在第 0 秒等待，正在加载姿态估计 AI 模型…');
       const { detector, isLocalModel } = await createPoseLandmarker();
       if (run !== state.activeRunId) { detector.close(); return; }
       state.detector = detector; state.modelReady = true;
+
+      // Reset to 0s right before starting playback and inference together
+      video.currentTime = 0;
+      await video.play();
       state.startWall = Date.now(); state.startPerf = performance.now();
       refreshModeUI();
       const sourceText = isLocalModel ? '真正的 MediaPipe 姿态模型（本地离线模型）已就绪。' : '真正的 MediaPipe 姿态模型已从网络加载就绪。';
-      modelMessage(`${sourceText}正在对选定视频进行真实 AI 动作评测。`, 'success');
-      inform('已开始对本地视频进行逐帧姿态识别与动作计数分析。');
+      modelMessage(`${sourceText}正在对选定视频从第 0 秒开始进行真实 AI 动作评测。`, 'success');
+      inform('已开始对本地视频进行姿态识别与动作计数分析（视频从第 0 秒启动）。');
       const stage = document.querySelector('#cameraStage');
       stage?.classList.remove('mirror');
 

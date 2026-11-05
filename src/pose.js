@@ -38,7 +38,7 @@ export async function createPoseLandmarker(options = {}) {
       visionModule = await modulePromise;
     } catch (error) {
       modulePromise = null;
-      throw new Error(`MediaPipe 运行库加载失败（请检查网络或 CDN 访问）：${error.message}`);
+      throw new Error(`MediaPipe 运行库加载失败（首度加载 ESM 运行时需网络连接，请检查网络访问或在离线时使用模拟模式）：${error.message}`);
     }
 
     const { FilesetResolver, PoseLandmarker } = visionModule;

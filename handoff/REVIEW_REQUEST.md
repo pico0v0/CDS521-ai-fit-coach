@@ -1,36 +1,48 @@
-# REVIEW_REQUEST — v0.2.1-r3 第三轮 P0 安全加固审查交接说明
+# REVIEW_REQUEST — v0.2.1-r4 第四轮 P1 专项缺陷修复交接审查说明
 
-**交付版本**：v0.2.1-r3  
-**交付包**：`release/ai-fit-coach-demo-v0.2.1-handoff.zip` (39 个文件，完整哈希自校验通过)  
-**本轮目标**：根据第三轮审查要求（针对 v0.2.1-r2 复审报告中所列的两处仍未封闭的安全边界及冒烟清理问题），定向彻底闭合 R-001 漏洞链，实现零豁免安全打包与逐级目录符号链接防御。
+**交付版本**：v0.2.1-r4  
+**交付包**：`release/ai-fit-coach-demo-v0.2.1-handoff.zip` (39 个文件，完整哈希与逐文件零私钥扫描通过)  
+**本轮目标**：根据审查 AI 第三轮通过结论（`P0_R3_REVIEW_REPORT.md`）及下一轮修复指示（`NEXT_AI_P1_PROMPT.md`），全面完成以 P1-TEST-001、P1-DATA-CSV 和 R-003~R-010 为核心的 P1 缺陷修复与确定性回归单测。
 
 ---
 
-## 一、本轮重点加固与验收点（P0 彻底闭环）
+## 一、本轮重点加固与验收点（P1 专项验收）
 
-1. **R-001-A [P0/安全] 静态服务逐级目录符号链接拦截与物理分区约束**：
-   - **源码位置**：`server.mjs:51–142`、`scripts/smoke.mjs:30–95`；
+1. **P1-TEST-001 [P1/测试体系] 安全测试假阳性与交互挂起彻底修复**：
+   - **源码位置**：`scripts/test_package_security.py:94–130`、`scripts/package.py:80–90`；
    - **加固措施**：
-     - **逐级遍历检查（Iterative Segment Check）**：对客户端规范化后的相对路径，自顶向下对每一级路径组件（如 `src`, `src/internal-alias` 等）执行 `lstat`，只要任意一级为符号链接（`isSymbolicLink()` 为 true），立即响应 **403 Forbidden**；
-     - **物理分区真实路径约束（Per-Zone Physical Enclosure）**：不但校验 `realpath` 在项目根目录，而且对 `/src/**` 强制校验其实体必须严格位于 `project_root/src` 之内，对 `/models/**` 强制校验其实体必须位于 `project_root/models` 之内，根路径严格限制为 `index.html`；
-     - **复核验证点**：即使攻击者在 `/src/` 内创建指向项目根目录或其它目录的目录符号链接（如 `src/internal-alias -> ..`），访问 `GET /src/internal-alias/server.mjs` 或 `GET /src/internal-alias/package.json` 均被双重安全拦截，返回 **403 Forbidden**，彻底杜绝目录别名逃逸。
+     - 场景 6 彻底移除 `shell=True`，改用 `shell=False`、显式 `stdin=subprocess.DEVNULL`、`timeout=20`，核验退出码 0 与 `HTTP smoke PASS` 输出标记；
+     - 新增场景 7 负向回归测试：破坏冒烟测试替身抛出异常，断言安全测试套件必报错退出，彻底证明绝无假阳性；
+     - 打包调用增加 `stdin=subprocess.DEVNULL` 与 `timeout=60`，消除任何子进程挂起风险。
 
-2. **R-001-B [P0/安全] 打包扫描器“零豁免”与运行时字节拼接防御**：
-   - **源码位置**：`scripts/package.py:27–85`、`scripts/verify_package.py:12–80`、`scripts/test_package_security.py`；
+2. **P1-DATA-CSV [P1/学术一致性] MAE 看板与 CSV 导出逐行绝对误差自愈与一致性**：
+   - **源码位置**：`src/store.js:48–110`、`tests/store.test.mjs:115–150`；
    - **加固措施**：
-     - **彻底移除文件豁免**：完全删除了原本对 `package.py`、`verify_package.py`、`test_package_security.py` 的跳过逻辑，实现入包文件 100% 全量扫描；
-     - **动态字节拼接正则（Dynamic Byte Construction）**：扫描器与校验器内部通过 `b'-----' + b'BEGIN'` 及 `b'PRIVATE' + b' KEY'` 动态拼装正则与特征码，使得脚本本身既不含有 PEM 私钥头字面量，又可扫描自身源码；
-     - **复核验证点**：测试在 `scripts/package.py` 或 `scripts/verify_package.py` 中注入包含 `BEGIN RSA PRIVATE KEY` 等格式的注释或代码，打包程序均能敏锐检测并退出（Exit Code 1），杜绝扫描工具自身成为特权后门。
+     - 实现并导出 `deriveVerifiedAbsError(session)` 纯函数，仅在 `count` 与 `manualCount` 为合法非负整数时计算 `Math.abs(count - manualCount)`；
+     - 未人工标注的会话在 CSV 中导出空字符串 `""`（绝不虚假填充 `0` 或 `null`）；
+     - 脏数据（如旧持久化的 `absError: -8`）在导出时自愈重算为正误差，导出行误差均值与 `computeMaeStats().realMae` 完全一致。
 
-3. **P1-NEW [工程可靠性] 冒烟测试测试产物安全析构与可重复打包**：
-   - **源码位置**：`scripts/smoke.mjs:130–165`；
-   - **加固措施**：
-     - 针对 Node.js / Windows 下 `existsSync` 跟随符号链接导致目标先删后无法安全识别悬垂符号链接的陷阱，改用 `lstatSync` 识别并**优先 unlink 符号链接，再删除外部目标文件**；
-     - 冒烟测试执行完毕后不留任何残留或悬垂符号链接，确保连续执行 `python scripts/package.py` 100% 稳定通过。
+3. **R-003 [P1/视频评测] 视频分析启动时序加固（第 0 秒等待模型就绪）**：
+   - **源码位置**：`src/app.js:374–400`；
+   - **加固措施**：加载视频后先暂停在第 0 秒并读取元数据，待 MediaPipe 模型完全下载并初始化就绪后，重置 `video.currentTime = 0`，再与推理循环同步启动播放，解决视频开头帧漏分析竞态。
 
-4. **自动化回归与复现验证**：
-   - `python scripts/test_package_security.py` 包含 6 大攻击场景（Markdown、JS、.pem、package.py 自身注入、verify_package.py 自身注入、冒烟后连续打包），全部通过；
-   - 运行独立审查复现脚本 `audit/AI_Fit_Coach_v0.2.1-r2_Review/reproduce_r2.py`，全部 4 项指标（包豁免阻断、清理无悬垂、7种私钥格式阻断、MAE 统计隔离与异常修复）均获 **PASS**。
+4. **R-004 [P1/误计数] 动作侧别硬锁定与跨侧跳变阻断（BUG02）**：
+   - **源码位置**：`src/exercise.js:65–115, 215–230`、`tests/exercise.test.mjs`；
+   - **加固措施**：动作进行中检测到侧别突然跳变（如左腿屈曲未完成跳变到伸直右腿），立即中断重置当前动作（`inRep = false; ready = false;`），提示用户保持单侧面向镜头，严禁跨侧拼接虚假完成动作；单测覆盖 BUG02（不对称双腿+对侧恢复验证计数为 0）。
+
+5. **R-005 [P1/规则定义] 开合跳双下肢协同开合约束（BUG03）**：
+   - **源码位置**：`src/exercise.js:35–65, 230–280`、`tests/exercise.test.mjs`；
+   - **加固措施**：实现 `getLegSpreadRatio` 计算双脚踝相对于髋宽度的归一化开合比；开合跳判定要求双臂与双腿协同展开（`peakLegSpread >= 1.65`）；单测覆盖 BUG03（腿部固定仅摆臂验证计数为 0）。
+
+6. **R-006 [P1/提示时序] 首次姿态异常提示免冷却即时触发（BUG04）**：
+   - **源码位置**：`src/exercise.js:255–270`、`tests/exercise.test.mjs`；
+   - **加固措施**：修复 `|| 0` 导致前 3 秒首次异常被冷却抑制的问题；单测覆盖 BUG04（`timestamp < 3000ms` 下注入异常即刻触发）。
+
+7. **R-010 / R-008 / R-009 / R-013 系列完善**：
+   - R-010：提前过滤重合退化骨架，`BUG01` 验证返回 `null`；
+   - R-008：如实修正离线说明，指明本地 `/models/` 缓存模型与 WASM，ESM 运行时需联网预热；
+   - R-009：基准报告动态实算浅动作召回率（`shallowRecallPct`，100.0%），标明纯算法 CPU 吞吐；
+   - R-013：分离显示「渲染 FPS」、「AI 推理 FPS」与「推理耗时」。
 
 ---
 
@@ -38,10 +50,10 @@
 
 ```bash
 npm run check                                                         # 6 个核心 ES 模块语法检查 (PASS)
-npm test                                                              # 26/26 项算法、状态机与数据隔离单测 (PASS)
-python scripts/test_package_security.py                               # 6 项攻击性与自省打包安全自动化回归 (PASS)
+npm test                                                              # 31/31 项算法、状态机、数据隔离与 BUG01~04 单测 (PASS)
+python scripts/test_package_security.py                               # 7 项安全注入与负向防假阳性自动化回归 (PASS)
 node scripts/smoke.mjs                                                # 包含目录符号链接与非客户端路径 403 拦截的冒烟测试 (PASS)
-npm run benchmark                                                     # 9 组跨 FPS 动作基准测试 (PASS)
+npm run benchmark                                                     # 9 组跨 FPS 动作基准测试与实算召回率 (PASS)
 python scripts/package.py                                             # 自动化零豁免前置扫描与 ZIP 打包 (PASS)
 python scripts/verify_package.py release/ai-fit-coach-demo-v0.2.1-handoff.zip # 独立解包审计与 SHA-256 完整性校验 (PASS)
 ```
@@ -51,29 +63,25 @@ python scripts/verify_package.py release/ai-fit-coach-demo-v0.2.1-handoff.zip # 
 ## 🤖 供直接复制发给复审 AI 的提示词（Prompt for Reviewer AI）
 
 ```markdown
-请你扮演资深代码安全与系统架构审查专家，对本次提交的 AI Fit Coach v0.2.1-r3 修复包进行第三轮 P0 安全专项复审。
+请你扮演资深代码安全与计算机视觉审查专家，对本次提交的 AI Fit Coach v0.2.1-r4 进行第四轮 P1 缺陷专项复审。
 
-【本次修复背景与任务】
-开发者在第二轮 P0 复审报告中收到了两项未封闭的边界缺陷：
-1. 问题 A（R-001-A）：目录符号链接（如 `src/root-alias -> ..`）仍可绕过静态路径白名单读取工程敏感文件；
-2. 问题 B（R-001-B）：打包扫描器对 `package.py`、`verify_package.py`、`test_package_security.py` 存在豁免名单，允许伪造的私钥头潜入。
-此外，还修正了冒烟测试中外部符号链接析构顺序导致后续打包失败的问题。
-
-【开发者在 v0.2.1-r3 中的落地措施】
-1. 静态服务（server.mjs）：
-   - 引入逐级路径 `lstat` 检查：对请求路径自顶向下每一层组件均校验 `isSymbolicLink()`，发现任意一级为符号链接即直接返回 403 Forbidden；
-   - 强化物理分区约束：校验 realpath 必须严格局限于目标分区（如 `/src/**` 必须实体位于 `root/src/`，`/models/**` 必须实体位于 `root/models/`，根路径仅限 `index.html`）。
-2. 打包与审计（package.py / verify_package.py）：
-   - 彻底移除所有文件扫描豁免，对交付包中的 39 个文件（包含自身脚本与所有文本、Markdown、源码）100% 全量扫描；
-   - 正则表达式与匹配逻辑采用动态字节拼接（`b'-----' + b'BEGIN'`），确保脚本本身无 PEM 字面量，不会误报自身，同时可靠阻断任何私钥头潜入。
-3. 冒烟测试清理（smoke.mjs）：
-   - 使用 `lstatSync` 优先解除符号链接，再删除外部 target，确保无悬垂符号链接残留，保障后续连续打包通过。
+【本次交付背景与任务】
+第三轮独立复审报告（P0_R3_REVIEW_REPORT.md）已正式确认：R-001-A 与 R-001-B 两项 P0 修复结案通过，同意正式进入 P1 开发。
+开发者本轮严格根据审查报告中的优先级指引，全面完成了以下 P1 与 P2 专项修复：
+1. P1-TEST-001：修复安全测试假阳性与交互挂起（Scenario 6 移除 shell=True，显式指定 DEVNULL、超时与 HTTP smoke PASS 标志断言；新增 Scenario 7 故意破坏 smoke 的负向回归测试；package.py 子进程统一加入 DEVNULL 与超时）；
+2. P1-DATA-CSV：统一导出与看板误差推导函数 deriveVerifiedAbsError，未标注记录导出空字符串 ""（绝不填 0），旧负数脏数据自愈纠偏，CSV 行均值与看板 realMae 严格一致；
+3. R-003：视频评测起播时序加固，先暂停于第 0 秒等待 MediaPipe 模型就绪，再重置 currentTime=0 同步播放与推理，解决首帧漏分析竞态；
+4. R-004：动作侧别硬锁定，单侧屈曲未完成跳变至对侧时强制中断重置本轮，单测覆盖 BUG02（不对称双腿+跨侧跳变计数严格为 0）；
+5. R-005：开合跳下肢协同约束，引入 getLegSpreadRatio 归一化双脚踝间距门控，单测覆盖 BUG03（仅摆臂开合跳计数严格为 0）；
+6. R-006：首次姿态异常提示免冷却即时触发，单测覆盖 BUG04（timestamp < 3000ms 首次注入即触发）；
+7. R-010：重合退化骨架提前过滤，单测覆盖 BUG01（退化点严格返回 null，不伪造 0°）；
+8. R-008 / R-009 / R-013：如实澄清 ESM 运行时需联网预热、基准报告动态实算浅动作召回率（100.0%）、界面独立分离渲染 FPS 与 AI 推理 FPS / 耗时。
 
 【请重点审查】
-1. 构造类似 `src/root-alias -> ..` 或 `src/nested-dir-symlink` 的目录符号链接，尝试请求 `GET /src/root-alias/server.mjs` 或 `GET /src/root-alias/package.json`，验证是否均被严格拦截为 403 Forbidden；
-2. 在 `scripts/package.py`、`scripts/verify_package.py` 或任意源码/文档文件中尝试写入包含 `BEGIN RSA PRIVATE KEY`、`BEGIN EC PRIVATE KEY` 等 PEM 私钥头，运行 `python scripts/package.py`，验证是否 100% 阻断且 Exit Code 为 1；
-3. 运行 `node scripts/smoke.mjs` 后紧接着执行 `python scripts/package.py`，确认无任何悬垂符号链接残留，打包能否顺利通过；
-4. 查验全套自动化测试（`npm run check`、`npm test`、`python scripts/test_package_security.py`）。
+1. 检查 `scripts/test_package_security.py`，确认 Scenario 6 与 Scenario 7 是否彻底消除了 shell=True 假阳性与挂起隐患；
+2. 检查 `src/store.js` 与 `tests/store.test.mjs`，验证 CSV 导出与 computeMaeStats 是否严格一致，且未标注记录为空；
+3. 执行 `node repro_regressions.mjs` 或运行 `npm test`（31/31 PASS），复核原审查报告中的 BUG01、BUG02、BUG03、BUG04 是否已全部被成功阻断与修复；
+4. 查验全套自动化测试（`npm run check`、`npm test`、`python scripts/test_package_security.py`、`node scripts/smoke.mjs`、`npm run benchmark`、`python scripts/package.py`）。
 
-若上述测试全部通过且未发现新的 P0 安全与学术数据隐患，请给出本轮 P0 结案结论，并确认是否同意进入下一轮 P1 缺陷（R-003~R-009）的修复开发。
+请给出本次 P1 专项修复的复审结论。
 ```

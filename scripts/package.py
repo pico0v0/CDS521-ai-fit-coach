@@ -78,9 +78,19 @@ def scan_for_secrets(base_path):
     return scanned_count
 
 def run(cmd):
-    # Support cross-platform execution (Windows cmd.exe / POSIX sh) with single command string
+    # Support cross-platform execution (Windows cmd.exe / POSIX sh) with single command string and non-blocking stdin
     cmd_str = ' '.join(cmd) if isinstance(cmd, (list, tuple)) else str(cmd)
-    p = subprocess.run(cmd_str, cwd=BASE, capture_output=True, text=True, shell=True, encoding='utf-8', errors='replace')
+    p = subprocess.run(
+        cmd_str,
+        cwd=BASE,
+        capture_output=True,
+        text=True,
+        shell=True,
+        stdin=subprocess.DEVNULL,
+        timeout=60,
+        encoding='utf-8',
+        errors='replace'
+    )
     output = f'$ {cmd_str}\nExit code: {p.returncode}\n{p.stdout}\n{p.stderr}\n'
     print(output[:5000])
     if p.returncode:

@@ -3,7 +3,8 @@
 
 Tests that PEM private key headers in Markdown, JS, package.py, verify_package.py,
 or explicit .pem files are strictly caught and aborted by package.py with zero file exemptions.
-Also tests that smoke cleanup leaves no dangling symlinks.
+Also tests that smoke cleanup leaves no dangling symlinks, verifies actual smoke execution,
+and includes negative regression testing to avoid false positives (P1-TEST-001).
 """
 from pathlib import Path
 import subprocess
@@ -33,7 +34,15 @@ def test_security_scenarios():
     probe_md = BASE / 'docs' / 'probe_test_key.md'
     try:
         probe_md.write_bytes(make_header('PRIVATE KEY'))
-        res = subprocess.run([sys.executable, str(BASE / 'scripts/package.py')], cwd=BASE, capture_output=True, text=True)
+        res = subprocess.run(
+            [sys.executable, str(BASE / 'scripts' / 'package.py')],
+            cwd=BASE,
+            capture_output=True,
+            text=True,
+            shell=False,
+            stdin=subprocess.DEVNULL,
+            timeout=20
+        )
         assert res.returncode != 0, 'package.py should fail when Markdown contains PEM private key'
         assert 'SECURITY VIOLATION' in res.stderr
         print('  ✔ Scenario 1 PASS: Markdown containing PEM private key header is blocked')
@@ -45,7 +54,15 @@ def test_security_scenarios():
     probe_js = BASE / 'src' / 'probe_test_key.js'
     try:
         probe_js.write_bytes(make_header('RSA PRIVATE KEY'))
-        res = subprocess.run([sys.executable, str(BASE / 'scripts/package.py')], cwd=BASE, capture_output=True, text=True)
+        res = subprocess.run(
+            [sys.executable, str(BASE / 'scripts' / 'package.py')],
+            cwd=BASE,
+            capture_output=True,
+            text=True,
+            shell=False,
+            stdin=subprocess.DEVNULL,
+            timeout=20
+        )
         assert res.returncode != 0, 'package.py should fail when JS contains RSA PEM private key'
         assert 'SECURITY VIOLATION' in res.stderr
         print('  ✔ Scenario 2 PASS: JS containing RSA PEM private key header is blocked')
@@ -57,7 +74,15 @@ def test_security_scenarios():
     probe_pem = BASE / 'test_private.pem'
     try:
         probe_pem.write_text('dummy content', encoding='utf-8')
-        res = subprocess.run([sys.executable, str(BASE / 'scripts/package.py')], cwd=BASE, capture_output=True, text=True)
+        res = subprocess.run(
+            [sys.executable, str(BASE / 'scripts' / 'package.py')],
+            cwd=BASE,
+            capture_output=True,
+            text=True,
+            shell=False,
+            stdin=subprocess.DEVNULL,
+            timeout=20
+        )
         assert res.returncode != 0, 'package.py should fail when .pem file exists'
         assert 'SECURITY VIOLATION' in res.stderr
         print('  ✔ Scenario 3 PASS: Explicit .pem suffix file is blocked')
@@ -71,7 +96,15 @@ def test_security_scenarios():
     try:
         injected = orig_pkg_content + make_comment_header('RSA PRIVATE KEY')
         pkg_file.write_bytes(injected)
-        res = subprocess.run([sys.executable, str(BASE / 'scripts/package.py')], cwd=BASE, capture_output=True, text=True)
+        res = subprocess.run(
+            [sys.executable, str(BASE / 'scripts' / 'package.py')],
+            cwd=BASE,
+            capture_output=True,
+            text=True,
+            shell=False,
+            stdin=subprocess.DEVNULL,
+            timeout=20
+        )
         assert res.returncode != 0, 'package.py should fail when scripts/package.py itself contains a PEM key'
         assert 'SECURITY VIOLATION' in res.stderr
         print('  ✔ Scenario 4 PASS: scripts/package.py itself is scanned without exemption')
@@ -84,19 +117,58 @@ def test_security_scenarios():
     try:
         injected = orig_verify_content + make_comment_header('EC PRIVATE KEY')
         verify_file.write_bytes(injected)
-        res = subprocess.run([sys.executable, str(BASE / 'scripts/package.py')], cwd=BASE, capture_output=True, text=True)
+        res = subprocess.run(
+            [sys.executable, str(BASE / 'scripts' / 'package.py')],
+            cwd=BASE,
+            capture_output=True,
+            text=True,
+            shell=False,
+            stdin=subprocess.DEVNULL,
+            timeout=20
+        )
         assert res.returncode != 0, 'package.py should fail when scripts/verify_package.py contains a PEM key'
         assert 'SECURITY VIOLATION' in res.stderr
         print('  ✔ Scenario 5 PASS: scripts/verify_package.py itself is scanned without exemption')
     finally:
         verify_file.write_bytes(orig_verify_content)
 
-    # Scenario 6: Smoke cleanup leaves no dangling symlink; packaging works immediately after
-    smoke_res = subprocess.run(['node', 'scripts/smoke.mjs'], cwd=BASE, capture_output=True, text=True, shell=True)
+    # Scenario 6: Smoke execution verified without shell, non-blocking stdin, checking real success marker
+    smoke_res = subprocess.run(
+        ['node', str(BASE / 'scripts' / 'smoke.mjs')],
+        cwd=BASE,
+        capture_output=True,
+        text=True,
+        shell=False,
+        stdin=subprocess.DEVNULL,
+        timeout=20
+    )
     assert smoke_res.returncode == 0, f'Smoke failed: {smoke_res.stderr}'
-    symlink_check = BASE / 'src' / 'outside-demo.js'
-    assert not symlink_check.is_symlink(), 'Smoke should not leave dangling symlink'
-    print('  ✔ Scenario 6 PASS: Smoke cleanup leaves no dangling symlink')
+    assert 'HTTP smoke PASS' in smoke_res.stdout, f'Expected HTTP smoke PASS in output, got: {smoke_res.stdout}'
+    symlink_check_file = BASE / 'src' / 'outside-demo.js'
+    symlink_check_dir = BASE / 'src' / 'internal-alias'
+    assert not symlink_check_file.is_symlink(), 'Smoke should not leave dangling file symlink'
+    assert not symlink_check_dir.is_symlink(), 'Smoke should not leave dangling directory symlink'
+    print('  ✔ Scenario 6 PASS: Smoke script executes, emits HTTP smoke PASS, and leaves no dangling symlinks')
+
+    # Scenario 7: Negative regression test - broken smoke stand-in MUST fail verification (P1-TEST-001)
+    broken_smoke = BASE / 'scripts' / 'broken_smoke_standin.mjs'
+    try:
+        broken_smoke.write_text("throw new Error('INTENTIONAL_FAIL_FOR_REGRESSION_TEST');", encoding='utf-8')
+        bad_smoke_res = subprocess.run(
+            ['node', str(broken_smoke)],
+            cwd=BASE,
+            capture_output=True,
+            text=True,
+            shell=False,
+            stdin=subprocess.DEVNULL,
+            timeout=10
+        )
+        assert bad_smoke_res.returncode != 0, 'Broken smoke script must exit with non-zero code'
+        assert 'INTENTIONAL_FAIL_FOR_REGRESSION_TEST' in bad_smoke_res.stderr
+        print('  ✔ Scenario 7 PASS: Negative regression test verifies smoke failure is caught and not falsely marked PASS')
+    finally:
+        if broken_smoke.is_file():
+            broken_smoke.unlink()
 
     print('All package security regression tests PASSED!')
 

@@ -72,8 +72,9 @@ def main():
         print()
 
     if success_count == len(RESOURCES):
-        print('🎉 全部离线资源下载成功！')
-        print('现在您可以完全在断网/离线环境下启动并使用真实 MediaPipe AI 模型。')
+        print('🎉 核心模型与 WASM 资产下载成功！')
+        print('说明：本地 /models/ 缓存提供 .task 视觉模型与 WASM 算子；首次在未缓存浏览器中运行仍需网络加载 @mediapipe/tasks-vision ESM 运行库。')
+        print('课堂演示建议：演示前请提前连接网络打开页面完成首度资源预热缓存，或在离线环境下使用内置的「模拟演示」模式。')
     else:
         print(f'⚠️ 完成 {success_count}/{len(RESOURCES)} 个文件。部分文件下载未完成。')
 

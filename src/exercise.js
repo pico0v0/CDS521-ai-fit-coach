@@ -33,12 +33,29 @@ export function angleDegrees(a, b, c) {
   return Math.acos(cos) * 180 / Math.PI;
 }
 
+export function getLegSpreadRatio(landmarks, visibilityThreshold = 0.35) {
+  if (!landmarks || landmarks.length < 29) return null;
+  const leftHip = landmarks[23], rightHip = landmarks[24];
+  const leftAnkle = landmarks[27], rightAnkle = landmarks[28];
+  if (!leftHip || !rightHip || !leftAnkle || !rightAnkle) return null;
+  const vis = Math.min(
+    leftHip.visibility ?? 1, rightHip.visibility ?? 1,
+    leftAnkle.visibility ?? 1, rightAnkle.visibility ?? 1
+  );
+  if (vis < visibilityThreshold) return null;
+  const hipDist = Math.hypot(rightHip.x - leftHip.x, rightHip.y - leftHip.y);
+  if (!Number.isFinite(hipDist) || hipDist < 0.02) return null;
+  const ankleDist = Math.hypot(rightAnkle.x - leftAnkle.x, rightAnkle.y - leftAnkle.y);
+  if (!Number.isFinite(ankleDist)) return null;
+  return ankleDist / hipDist;
+}
+
 /** MediaPipe 33-landmark index convention. Supports side hysteresis & preferred side. */
 export function extractJointAngle(landmarks, exerciseId, options = 0.6) {
   if (!landmarks || landmarks.length < 33) return null;
-  const visibilityThreshold = typeof options === 'number' ? options : (options.visibilityThreshold ?? 0.6);
-  const preferredSide = typeof options === 'object' ? options.preferredSide : null;
-  const hysteresis = typeof options === 'object' ? (options.hysteresis ?? 0.12) : 0.12;
+  const visibilityThreshold = typeof options === 'number' ? options : (options?.visibilityThreshold ?? 0.6);
+  const preferredSide = typeof options === 'string' ? options : (typeof options === 'object' ? options?.preferredSide : null);
+  const hysteresis = typeof options === 'object' ? (options?.hysteresis ?? 0.12) : 0.12;
 
   if (exerciseId === 'jumping_jack') {
     const leftPts = [23, 11, 15].map(i => landmarks[i]);
@@ -49,17 +66,20 @@ export function extractJointAngle(landmarks, exerciseId, options = 0.6) {
     if (leftValid && rightValid) {
       const leftAngle = angleDegrees(...leftPts);
       const rightAngle = angleDegrees(...rightPts);
+      if (leftAngle === null || rightAngle === null || leftAngle < 5 || rightAngle < 5) return null;
       const avg = Math.round((leftAngle + rightAngle) / 2);
       const score = Math.min(...leftPts.concat(rightPts).map(p => p.visibility ?? 1));
       return { angle: avg, confidence: score, side: '双侧', ids: [11, 12, 13, 14, 15, 16, 23, 24] };
     } else if (leftValid) {
-      const angle = Math.round(angleDegrees(...leftPts));
+      const angle = angleDegrees(...leftPts);
+      if (angle === null || angle < 5) return null;
       const score = Math.min(...leftPts.map(p => p.visibility ?? 1));
-      return { angle, confidence: score, side: '左侧', ids: [11, 13, 15, 23] };
+      return { angle: Math.round(angle), confidence: score, side: '左侧', ids: [11, 13, 15, 23] };
     } else if (rightValid) {
-      const angle = Math.round(angleDegrees(...rightPts));
+      const angle = angleDegrees(...rightPts);
+      if (angle === null || angle < 5) return null;
       const score = Math.min(...rightPts.map(p => p.visibility ?? 1));
-      return { angle, confidence: score, side: '右侧', ids: [12, 14, 16, 24] };
+      return { angle: Math.round(angle), confidence: score, side: '右侧', ids: [12, 14, 16, 24] };
     }
     return null;
   }
@@ -176,6 +196,8 @@ export class ExerciseAnalyzer {
     this.faultCounts = { trunk_lean: 0, arm_swing: 0, arm_asymmetry: 0 };
     this.lastFaultTimes = {};
     this.currentFault = null;
+    this.peakLegSpread = 0;
+    this.hasLegTracking = false;
   }
   update({ angle, visible = true, timestamp, side = null, landmarks = null }) {
     if (!Number.isFinite(timestamp)) throw new Error('timestamp must be finite milliseconds');
@@ -192,12 +214,39 @@ export class ExerciseAnalyzer {
       this.phase = '请调整机位'; this.lastAngle = null; this.lastEvent = null;
       this.depthProgress = 0;
       this.currentFault = null;
+      this.peakLegSpread = 0;
       return this.snapshot();
     }
     this.visible = true;
+
+    // Hard side lock: switching side during active rep interrupts rep to prevent cross-side false counting (R-004)
+    if (this.inRep && this.activeSide && side && side !== this.activeSide && this.exercise.id !== 'jumping_jack') {
+      this.inRep = false;
+      this.ready = false;
+      this.lastSmooth = null;
+      this.minAngle = 180;
+      this.peakAngle = 0;
+      this.phase = '侧别跳变 · 请保持单侧面向镜头';
+      this.depthProgress = 0;
+      this.currentFault = null;
+      this.lastEvent = { type: 'warning', message: '检测到动作侧别切换，本轮动作已重置', timestamp };
+      return this.snapshot();
+    }
+
     if (!this.inRep && side) {
       this.activeSide = side;
     }
+
+    if (this.exercise.id === 'jumping_jack' && landmarks) {
+      const legRatio = getLegSpreadRatio(landmarks);
+      if (legRatio !== null) {
+        this.hasLegTracking = true;
+        if (this.inRep) {
+          this.peakLegSpread = Math.max(this.peakLegSpread, legRatio);
+        }
+      }
+    }
+
     this.lastSmooth = this.lastSmooth === null || sinceLast > 1000
       ? angle : this.lastSmooth * 0.55 + angle * 0.45;
     const measured = this.lastSmooth;
@@ -227,6 +276,14 @@ export class ExerciseAnalyzer {
       this.peakAngle = measured;
       this.phase = '动作进行中';
       if (side) this.activeSide = side;
+      this.peakLegSpread = 0;
+      if (this.exercise.id === 'jumping_jack' && landmarks) {
+        const legRatio = getLegSpreadRatio(landmarks);
+        if (legRatio !== null) {
+          this.hasLegTracking = true;
+          this.peakLegSpread = legRatio;
+        }
+      }
     } else if (this.inRep) {
       this.minAngle = Math.min(this.minAngle, measured);
       this.peakAngle = Math.max(this.peakAngle, measured);
@@ -238,8 +295,8 @@ export class ExerciseAnalyzer {
       if (landmarks && shouldCheckFault) {
         const fault = checkPostureFault(landmarks, this.exercise.id, this.activeSide || side);
         if (fault) {
-          const lastTime = this.lastFaultTimes[fault.code] || 0;
-          if (timestamp - lastTime >= 3000) {
+          const lastTime = this.lastFaultTimes[fault.code];
+          if (lastTime === undefined || timestamp - lastTime >= 3000) {
             this.lastFaultTimes[fault.code] = timestamp;
             this.faultCounts[fault.code] = (this.faultCounts[fault.code] || 0) + 1;
             this.currentFault = fault;
@@ -250,7 +307,11 @@ export class ExerciseAnalyzer {
 
       if (isAtExtended) {
         const duration = timestamp - this.repStartedAt;
-        const complete = isExpand ? this.peakAngle >= full : this.minAngle <= full;
+        const armComplete = isExpand ? this.peakAngle >= full : this.minAngle <= full;
+        const legComplete = this.exercise.id === 'jumping_jack' && this.hasLegTracking
+          ? this.peakLegSpread >= 1.65
+          : true;
+        const complete = armComplete && legComplete;
         if (duration >= MIN_REP_MS && duration >= MIN_TRACKING_INTERVAL_MS) {
           if (complete) {
             this.count++;
@@ -259,7 +320,10 @@ export class ExerciseAnalyzer {
             this.lastEvent = { type: 'success', message, isGoalAchieved, timestamp };
           } else {
             this.partialCount++;
-            this.lastEvent = { type: 'warning', message: '本次动作幅度未达到演示阈值（不计数）', timestamp };
+            const message = (!legComplete && armComplete)
+              ? '开合跳需双腿与双臂同步开合（双腿未充分展开）'
+              : '本次动作幅度未达到演示阈值（不计数）';
+            this.lastEvent = { type: 'warning', message, timestamp };
           }
         }
         this.inRep = false;
@@ -267,6 +331,7 @@ export class ExerciseAnalyzer {
         this.phase = '已就绪';
         this.minAngle = 180;
         this.peakAngle = 0;
+        this.peakLegSpread = 0;
       }
     }
     return this.snapshot();

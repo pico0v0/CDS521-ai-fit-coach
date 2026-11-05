@@ -113,7 +113,7 @@ test('side hysteresis prevents flickering when confidences are close', () => {
   assert.equal(res2.side, '右侧');
 });
 
-test('analyzer tracks depth progress and retains active side during rep', () => {
+test('analyzer tracks depth progress and strictly resets rep if side switches mid-rep (R-004)', () => {
   const a = new ExerciseAnalyzer('squat');
   // Standing pose (170°), extended=155 -> ready
   a.update({ angle: 170, visible: true, timestamp: 100, side: '左侧' });
@@ -122,19 +122,27 @@ test('analyzer tracks depth progress and retains active side during rep', () => 
   assert.equal(s1.side, '左侧');
   assert.equal(a.ready, true);
 
-  // Descending (smoothly down to 130° over samples)
+  // Descending on 左侧 (smoothly down to 130° over samples)
   a.update({ angle: 130, visible: true, timestamp: 300, side: '左侧' });
   a.update({ angle: 130, visible: true, timestamp: 400, side: '左侧' });
   const s2 = a.update({ angle: 130, visible: true, timestamp: 500, side: '左侧' });
   assert.ok(s2.progress > 0);
   assert.equal(a.inRep, true);
+  assert.equal(a.activeSide, '左侧');
 
-  // During rep, if noisy frame detects '右侧', activeSide stays locked on '左侧'
-  a.update({ angle: 105, visible: true, timestamp: 600, side: '右侧' });
-  a.update({ angle: 105, visible: true, timestamp: 700, side: '右侧' });
-  const s3 = a.update({ angle: 105, visible: true, timestamp: 800, side: '右侧' });
+  // Continues descending on same side (左侧)
+  a.update({ angle: 105, visible: true, timestamp: 600, side: '左侧' });
+  a.update({ angle: 105, visible: true, timestamp: 700, side: '左侧' });
+  const s3 = a.update({ angle: 105, visible: true, timestamp: 800, side: '左侧' });
   assert.equal(s3.side, '左侧');
   assert.ok(s3.progress >= 95);
+  assert.equal(a.inRep, true);
+
+  // Mid-rep side jump to 右侧 must immediately abort the rep to prevent false count
+  const resetSnap = a.update({ angle: 105, visible: true, timestamp: 900, side: '右侧' });
+  assert.equal(a.inRep, false);
+  assert.equal(resetSnap.event?.type, 'warning');
+  assert.match(resetSnap.event?.message, /侧别切换/);
 });
 
 test('checkPostureFault detects excessive trunk forward lean in squat', () => {
@@ -197,4 +205,63 @@ test('analyzer supports difficulty presets and target rep goal achievement', () 
   assert.equal(beginner.count, 1);
   assert.ok(finalState.event?.isGoalAchieved);
   assert.match(finalState.event.message, /达成目标/);
+});
+
+test('R-010 regression: degenerate landmarks in jumping_jack return null instead of 0°', () => {
+  let p = simulatePose(0, 'jumping_jack');
+  for (let [w, s] of [[15, 11], [16, 12]]) p[w] = { ...p[w], x: p[s].x, y: p[s].y };
+  const res = extractJointAngle(p, 'jumping_jack');
+  assert.equal(res, null, 'Degenerate overlapping landmarks must return null, never 0° with fake confidence');
+});
+
+test('R-004 regression: side switch while tracked side stays bent does NOT count a rep', () => {
+  const a = new ExerciseAnalyzer('squat');
+  const feed = (t, phase) => {
+    const p = simulatePose(phase === 'bent' ? 2000 : 0, 'squat');
+    if (phase === 'bent') {
+      const standing = simulatePose(0, 'squat');
+      for (const i of [24, 26, 28]) p[i] = { ...standing[i], visibility: 0 };
+    }
+    if (phase === 'other_straight') {
+      const bent = simulatePose(2000, 'squat');
+      const standing = simulatePose(0, 'squat');
+      for (const i of [23, 25, 27]) p[i] = { ...bent[i], visibility: 0 };
+      for (const i of [24, 26, 28]) p[i] = standing[i];
+    }
+    let joint = extractJointAngle(p, 'squat', { preferredSide: a.activeSide, hysteresis: 0.12 });
+    a.update({ angle: joint?.angle, visible: !!joint, timestamp: t, side: joint?.side });
+  };
+  for (const t of [100, 200, 300]) feed(t, 'standing');
+  for (const t of [400, 500, 600, 700, 800, 900]) feed(t, 'bent');
+  for (const t of [1000, 1100, 1200, 1300, 1400, 1500]) feed(t, 'other_straight');
+
+  assert.equal(a.count, 0, 'Abruptly switching to straight opposite leg must not count as a completed squat');
+});
+
+test('R-005 regression: arm-only movement with static legs does NOT count as jumping jacks', () => {
+  const a = new ExerciseAnalyzer('jumping_jack');
+  const standing = simulatePose(0, 'jumping_jack');
+  for (let t = 0; t < 4 * 4700; t += 100) {
+    const p = simulatePose(t, 'jumping_jack');
+    // Lock all leg landmarks to standing position
+    for (let idx of [25, 26, 27, 28, 29, 30]) p[idx] = standing[idx];
+    const j = extractJointAngle(p, 'jumping_jack');
+    a.update({ angle: j?.angle, visible: !!j, timestamp: t + 1, side: j?.side, landmarks: p });
+  }
+
+  assert.equal(a.count, 0, 'Arm-only motion without leg spread must NOT be counted as complete jumping jacks');
+});
+
+test('R-006 regression: first posture fault within first 3000ms is immediately triggered', () => {
+  const a = new ExerciseAnalyzer('curl');
+  let p = simulatePose(2000, 'curl');
+  p[13] = { ...p[13], x: p[11].x + 0.25 }; // Injected arm swing fault
+  const triggeredTimes = [];
+  for (let t = 100; t < 2400; t += 100) {
+    const s = a.update({ angle: t < 300 ? 175 : 55, visible: true, timestamp: t, side: '左侧', landmarks: p });
+    if (s.event?.code === 'arm_swing') triggeredTimes.push(t);
+  }
+
+  assert.ok(triggeredTimes.length > 0, 'First posture fault must NOT be suppressed by cooldown when timestamp < 3000ms');
+  assert.equal(a.faultCounts.arm_swing, 1);
 });

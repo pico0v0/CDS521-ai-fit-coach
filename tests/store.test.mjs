@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { loadSessions, saveSession, clearSessions, makeAdvice, exportSessionsCSV, exportSessionsJSON, computeMaeStats } from '../src/store.js';
+import { loadSessions, saveSession, clearSessions, makeAdvice, exportSessionsCSV, exportSessionsJSON, computeMaeStats, deriveVerifiedAbsError } from '../src/store.js';
 
 function memoryStorage() {
   const map = new Map();
@@ -110,4 +110,39 @@ test('computeMaeStats strictly isolates real AI sessions from simulation data', 
   const resCorrupted = computeMaeStats(corrupted);
   assert.equal(resCorrupted.realMae, 53.50); // (99 + 8) / 2 = 53.50, strictly non-negative!
   assert.equal(resCorrupted.realCount, 2);
+});
+
+test('exportSessionsCSV uses deriveVerifiedAbsError ensuring screen MAE matches CSV row-by-row (P1-DATA-CSV)', () => {
+  // Test deriveVerifiedAbsError unit cases
+  assert.equal(deriveVerifiedAbsError(null), null);
+  assert.equal(deriveVerifiedAbsError({ count: 10 }), null);
+  assert.equal(deriveVerifiedAbsError({ count: 10, manualCount: -1 }), null);
+  assert.equal(deriveVerifiedAbsError({ count: 10, manualCount: 3.5 }), null);
+  assert.equal(deriveVerifiedAbsError({ count: 10, manualCount: 8 }), 2);
+  assert.equal(deriveVerifiedAbsError({ count: 5, manualCount: 12 }), 7);
+
+  // Test CSV export consistency with unannotated and corrupted sessions
+  const sessions = [
+    { ...record, id: 'unannotated', mode: 'camera', count: 10, trackedFrames: 100 },
+    { ...record, id: 'valid', mode: 'camera', count: 12, manualCount: 10, absError: 999, trackedFrames: 100 },
+    { ...record, id: 'corrupted-negative', mode: 'video', count: 8, manualCount: 0, absError: -8, trackedFrames: 100 }
+  ];
+
+  const csv = exportSessionsCSV(sessions);
+  const lines = csv.replace('\uFEFF', '').trim().split('\r\n');
+  assert.equal(lines.length, 4); // 1 header + 3 rows
+
+  // Row 1: unannotated session must have EMPTY strings for manualCount and absError (NOT "0" or "null"!)
+  assert.match(lines[1], /^"unannotated",.*,"10","1","",""/);
+
+  // Row 2: valid session must derive verified absError = |12 - 10| = 2 (NOT persisted 999)
+  assert.match(lines[2], /^"valid",.*,"12","1","10","2"/);
+
+  // Row 3: corrupted session must derive verified absError = |8 - 0| = 8 (NOT persisted -8)
+  assert.match(lines[3], /^"corrupted-negative",.*,"8","1","0","8"/);
+
+  // Consistency: the evaluated real sessions' CSV errors average matches computeMaeStats realMae exactly!
+  const stats = computeMaeStats(sessions);
+  assert.equal(stats.realCount, 2);
+  assert.equal(stats.realMae, 5.00); // (2 + 8) / 2 = 5.00
 });
