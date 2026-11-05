@@ -76,18 +76,38 @@ export function simulatePose(elapsedMs, exerciseId, options = {}) {
     put(points, 28, rightHipX + legSpread, ankleY);
     put(points, 29, leftHipX - legSpread - 0.02, ankleY + 0.01);
     put(points, 30, rightHipX + legSpread + 0.02, ankleY + 0.01);
+    put(points, 0, (leftShoulderX + rightShoulderX) / 2, shoulderY - 0.12);
   } else if (exerciseId === 'squat') {
+    const angleDeg = simulatedAngle(elapsedMs, exerciseId);
+    const squatRatio = Math.max(0, Math.min(1, (174 - angleDeg) / (174 - 91)));
     const kneeX = .6, kneeY = .66;
-    const hipX = kneeX - .18*Math.sin(angle), hipY = kneeY + .18*Math.cos(angle);
-    put(points,23,hipX,hipY); put(points,24,hipX+.025,hipY);
-    put(points,25,kneeX,kneeY); put(points,26,kneeX+.026,kneeY);
-    put(points,27,kneeX,.89); put(points,28,kneeX+.025,.89);
-    put(points,29,kneeX-.025,.90);put(points,30,kneeX+.007,.90);
+    const hipX = kneeX - .18 * Math.sin(angle), hipY = kneeY + .18 * Math.cos(angle);
+    put(points, 23, hipX, hipY); put(points, 24, hipX + .025, hipY);
+    put(points, 25, kneeX, kneeY); put(points, 26, kneeX + .026, kneeY);
+    put(points, 27, kneeX, .89); put(points, 28, kneeX + .025, .89);
+    put(points, 29, kneeX - .025, .90); put(points, 30, kneeX + .007, .90);
 
-    const leanOffset = injectFault ? 0.22 : 0;
-    put(points,11,hipX-.045-leanOffset,hipY-.25); put(points,12,hipX-.022-leanOffset,hipY-.25);
-    put(points,13,hipX-.035-leanOffset*.6,hipY-.13); put(points,14,hipX-.007-leanOffset*.6,hipY-.13);
-    put(points,15,hipX+.01,hipY-.05); put(points,16,hipX+.035,hipY-.05);
+    // Natural forward torso lean to balance hips backward, plus fault lean
+    const faultLean = injectFault ? 0.22 : 0;
+    const baseLean = 0.09 * squatRatio;
+    const shoulderX = hipX - 0.02 + baseLean + faultLean;
+    const shoulderY = hipY - 0.25 + 0.02 * squatRatio + (injectFault ? 0.04 : 0);
+    put(points, 11, shoulderX, shoulderY);
+    put(points, 12, shoulderX + .025, shoulderY);
+
+    // Arms raise forward to counterbalance squat; drop naturally when standing
+    const armRise = squatRatio;
+    const elbowX = shoulderX + 0.02 + 0.10 * armRise;
+    const elbowY = shoulderY + 0.12 - 0.08 * armRise;
+    const wristX = shoulderX + 0.03 + 0.21 * armRise;
+    const wristY = shoulderY + 0.23 - 0.20 * armRise;
+    put(points, 13, elbowX, elbowY); put(points, 14, elbowX + .025, elbowY);
+    put(points, 15, wristX, wristY); put(points, 16, wristX + .025, wristY);
+
+    // Head placed naturally above shoulders
+    const headX = shoulderX + 0.03 + 0.04 * squatRatio + (injectFault ? 0.05 : 0);
+    const headY = shoulderY - 0.10;
+    put(points, 0, headX, headY);
   } else {
     const elbowX = .57, elbowY = .51;
     // When fault is injected, shift shoulder backward relative to elbow
@@ -100,6 +120,7 @@ export function simulatePose(elapsedMs, exerciseId, options = {}) {
     put(points,25,.53,.79);put(points,26,.49,.79);
     put(points,27,.53,.93);put(points,28,.49,.93);
     put(points,29,.52,.94);put(points,30,.48,.94);
+    put(points,0,shoulderX-.01,.18);
   }
   return points;
 }

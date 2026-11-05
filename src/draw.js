@@ -15,6 +15,35 @@ export function drawPose(canvas, landmarks, options = {}) {
 
   const highlightSet = new Set(highlightJoints || []);
 
+  // 0. Draw neck & round head
+  const headPoint = landmarks[0];
+  const p11 = landmarks[11], p12 = landmarks[12];
+  if (p11 && p12 && (p11.visibility ?? 1) >= 0.35 && (p12.visibility ?? 1) >= 0.35) {
+    const neckX = ((p11.x + p12.x) / 2) * width;
+    const neckY = ((p11.y + p12.y) / 2) * height;
+    let headX = neckX;
+    let headY = neckY - Math.max(30, height / 16);
+    if (headPoint && (headPoint.visibility ?? 1) >= 0.35 && Number.isFinite(headPoint.x) && Number.isFinite(headPoint.y) && (headPoint.x !== 0 || headPoint.y !== 0)) {
+      headX = headPoint.x * width;
+      headY = headPoint.y * height;
+    }
+    ctx.beginPath();
+    ctx.moveTo(neckX, neckY);
+    ctx.lineTo(headX, headY);
+    ctx.strokeStyle = active ? 'rgba(198, 255, 114, 0.45)' : '#94a3b840';
+    ctx.lineWidth = Math.max(2.5, width / 260);
+    ctx.stroke();
+
+    const headRadius = Math.max(16, width / 55);
+    ctx.beginPath();
+    ctx.arc(headX, headY, headRadius, 0, Math.PI * 2);
+    ctx.fillStyle = active ? 'rgba(198, 255, 114, 0.12)' : 'rgba(148, 163, 184, 0.08)';
+    ctx.fill();
+    ctx.strokeStyle = active ? 'rgba(198, 255, 114, 0.85)' : '#94a3b860';
+    ctx.lineWidth = Math.max(2.2, width / 300);
+    ctx.stroke();
+  }
+
   // 1. Draw base skeleton edges
   for (const [a, b] of EDGES) {
     const p = landmarks[a], q = landmarks[b];
