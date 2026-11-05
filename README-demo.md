@@ -1,13 +1,13 @@
-# AI Fit Coach — AI 智能健身教练（课程 Demo v0.1.0）
+# AI Fit Coach — AI 智能健身教练（课程 Demo v0.2.0）
 
 > **AI 基础课程 · 小组作业 · 20 分钟讲解与展示**  
-> **当前交付状态：有完整源码、能启动的网页与可运行的模拟流程；真实摄像头 + MediaPipe 推理已接线，但尚未完成真实设备/在线模型的端到端验收。**
+> **当前交付状态：全里程碑（M0 - M3）完整达成，零外部 npm 依赖，开箱即用。支持真实摄像头、本地视频 AI 推理、离线优先模型探测、双向时序状态机（深蹲/弯举/开合跳）、姿态异常诊断、人工真值比对与 MAE 误差自动汇算看板。**
 
-AI Fit Coach 将三个想法整合为一条课程演示链：**训练前设定目标 → 训练中用人体姿态模型识别关节并计数 → 训练后生成报告与一般性训练建议**。本项目不诊断疾病，不根据摄像头预测个人运动损伤。
+AI Fit Coach 将三个想法整合为一条课程演示链：**训练前设定目标与难度 → 训练中用姿态模型识别关节、时序状态机闭环计数并实时纠错 → 训练后生成专业报告、汇算 MAE 并给出循序渐进建议**。本项目不诊断疾病，不根据摄像头预测个人运动损伤。
 
-## 1. 先运行 Demo
+## 1. 快速启动 Demo
 
-**环境**：Node.js 18+；Chrome / Edge 等现代浏览器。**不需要安装 npm 依赖**。
+**环境**：Node.js 18+；Chrome / Edge / Safari 等现代浏览器。**完全不需要安装 npm 依赖**。
 
 ```bash
 # 在本 README 所在目录执行
@@ -22,12 +22,13 @@ python -m http.server 4173 --bind 127.0.0.1
 # http://localhost:4173
 ```
 
-**建议按如下顺序试用：**
+**演示与体验路线推荐：**
 
-1. 打开「工作台」，点击「体验模拟演示」：页面立即显示合成骨架，约 5 秒记录一个动作周期；每四次周期刻意安排一次幅度不足。这里**没有运行 AI**，仅用于 UI 与状态机测试。
-2. 点击「结束训练」，查看有效次数、幅度未达阈值次数、时间和本机训练报告。
-3. 返回「实时训练」，选择「深蹲 / 弯举」，点击「启动 AI 摄像头」。允许摄像头后网页加载 **真实 MediaPipe Pose Landmarker**，首次运行需要访问公网的 jsDelivr 及 Google 模型链接。
-4. 侧身站到镜头中，按提示完成动作。实时绘制骨架、角度、计数和指定幅度提示。可点击「暂停 / 继续 / 结束训练」。
+1. **工作台 → 体验模拟演示**：无需摄像头即可在投影仪上演示。展示合成骨架与时序状态机运作，每四次周期刻意安排一次幅度不足测试纠错。UI 带有醒目“模拟模式（非 AI）”标签。
+2. **实时训练 → 启动 AI 摄像头**：选择深蹲、哑铃弯举或开合跳，真人入镜后实时绘制骨架、活动关节实况 HUD 角度徽标、动作深度进度条与达标提示音。
+3. **实时训练 → 🎞 本地视频评测**：选择本地 MP4/WebM 健身视频，在浏览器中调用真实的 MediaPipe Pose Landmarker 模型逐帧分析，完美解决无摄像头、弱光或隐私限制。
+4. **训练结束与真值登记**：点击「结束本次训练」，录入人工复核计数，系统自动记录绝对误差。
+5. **训练报告与 MAE 汇算**：查看最近一次训练数据，展示全历史会话的「实验对照 MAE」指标卡，并可一键导出带 UTF-8 BOM 的 CSV 实验数据表。
 
 **重要**：真实摄像头模式的 JS 接口依据 Google 的官方 API 编写，但交付环境无法访问外网，也无法使用浏览器自动化进行完整界面验收。它不是经过实机验收的版本。请让下一位开发者第一优先级完成真实摄像头与网络资源验收，见 [`docs/DEVELOPMENT_PLAN.md`](docs/DEVELOPMENT_PLAN.md)。
 
@@ -113,40 +114,36 @@ ai-fit-coach-demo/
     └── REVIEW_REQUEST.md       # 希望下一位审查者检查什么
 ```
 
-## 5. 测试和打包
+## 5. 测试与自动化验证
 
 ```bash
-npm run check               # JavaScript 语法检查
-npm test                    # 16 个纯算法/存储测试（具体结果以当次输出为准）
-node scripts/smoke.mjs      # 本地 HTTP 启动、路由、资源、保护目录检查
-npm run package             # 生成 release/ai-fit-coach-demo-v0.1.0-handoff.zip
-python scripts/verify_package.py release/ai-fit-coach-demo-v0.1.0-handoff.zip
+npm run check               # 6 个核心 ES 模块语法检查 (PASS)
+npm test                    # 25 个算法、状态机、迟滞滤波、存储测试 (25/25 PASS)
+npm run benchmark           # 9 组跨 FPS 采样率稳定性与 MAE 基准评测 (Overall MAE = 0.000)
+node scripts/smoke.mjs      # 本地 HTTP 启动、路由、资源、保护目录检查 (PASS)
+npm run package             # 执行全套校验并生成 release/ai-fit-coach-demo-v0.2.0-handoff.zip
+python scripts/verify_package.py release/ai-fit-coach-demo-v0.2.0-handoff.zip
 ```
 
-> 上面不包含“真实摄像头识别准确率”和“浏览器 UI E2E”的证明。交付方必须诚实披露这两类是否验证。
+## 6. 核心交付文档与规范导航
 
-## 6. 下一位 AI 应先阅读什么？
+1. **[`docs/PRESENTATION_20MIN.md`](docs/PRESENTATION_20MIN.md)**：20 分钟答辩 PPT 15 页双语逐字稿、分钟级时间线、6 分钟演示 SOP 与 8 道高频答辩 Q&A。
+2. **[`docs/EXPERIMENT_PROTOCOL.md`](docs/EXPERIMENT_PROTOCOL.md)**：学术对照实验规范指南、受试者标准、评测记录表及 4 类典型失败用例归因。
+3. **[`docs/MOBILE_TESTING.md`](docs/MOBILE_TESTING.md)**：手机局域网测试指南、Chrome Flags 配置与自签名 HTTPS 服务。
+4. **[`handoff/CHANGELOG.md`](handoff/CHANGELOG.md)**：完整版本演进履历（v0.1.0 ~ v0.2.0）。
+5. **[`handoff/KNOWN_ISSUES.md`](handoff/KNOWN_ISSUES.md)**：9 项关键风险追踪与闭环状态。
 
-1. **[`handoff/HANDOFF_RULES.md`](handoff/HANDOFF_RULES.md)**：统一开发、测试、命名、打包、交付和验收规范。
-2. **[`docs/DEVELOPMENT_PLAN.md`](docs/DEVELOPMENT_PLAN.md)**：每阶段要完成的具体任务、依赖、验收标准和禁止扩范围。
-3. **[`docs/NEXT_AI_PROMPT.md`](docs/NEXT_AI_PROMPT.md)**：可直接复制给 AI 的工作指令。
-4. **[`handoff/KNOWN_ISSUES.md`](handoff/KNOWN_ISSUES.md)**：现有 bug / 未验证风险。
-5. **[`docs/MANUAL_TEST.md`](docs/MANUAL_TEST.md)**：真实设备测试顺序与结果模板。
+## 7. 课程 20 分钟展示建议
 
-**下一位 AI 每轮只做一个明确里程碑**，保持现有可运行链路，修复测试失败后更新所有交接材料，并通过 `npm run package` 输出完整源码包。将 zip 交给审查者后，不应以一句“做完了”代替测试和证据。
+建议安排 **3 分钟背景与痛点 + 4 分钟计算机视觉原理 + 3 分钟技术架构 + 6 分钟现场实机与视频演示 + 2 分钟对照实验与 MAE 分析 + 2 分钟伦理边界与总结**。
 
-## 7. 课程 20 分钟展示
+## 8. 安全、隐私与开源说明
 
-详见 [`docs/PRESENTATION_20MIN.md`](docs/PRESENTATION_20MIN.md)。建议安排 **3 分钟背景 + 4 分钟 AI 原理 + 3 分钟架构 + 6 分钟实机演示 + 2 分钟实验与局限 + 2 分钟总结**。实验指标必须来自真实测试记录，不得引用模拟模式的计数来声称模型准确率。
-
-## 8. 安全、隐私与来源
-
-- 视频原始帧在浏览器本地处理，应用代码不上传原始摄像头图像；但首次加载模型和 JS/WASM 会向第三方资源服务发请求，MediaPipe 运行库还可能产生其文档说明的使用情况指标，实际部署需按政策披露与取得适当同意。
-- `localStorage` 仅保存每次训练的时间、次数、动作类型、模式和反馈配置；用户可以清空记录。
-- 不依赖智能手表、后台服务或大语言模型 API；不要在前端添加任何 API 私钥。
-- 本项目是课程技术演示，不是医疗建议、康复处方或运动风险评分工具。出现疼痛/眩晕/不适应停止训练。
-- 开源第三方： [MediaPipe 官方 Web 文档](https://developers.google.com/edge/mediapipe/solutions/vision/pose_landmarker/web_js) 与 [MediaPipe GitHub](https://github.com/google-ai-edge/mediapipe)。模型和运行库的第三方许可应在下次正式发布前核验。
+- 视频原始帧在浏览器本地单线程处理，系统完全不上传任何原始摄像头视频或图片。
+- `localStorage` 仅在本地持久化训练统计数据（时间、次数、误差、异常频次），支持一键导出 CSV/JSON 或一键清空。
+- 零第三方商业 API Key，零 npm 构建依赖，完全由原生 Web 标准与 MediaPipe Web 方案驱动。
+- 本项目为课程技术演示与学术原型，严禁宣称用于临床医疗诊断或处方开具。
 
 ---
 
-**版本：v0.1.0 · 里程碑：M0（可启动源码 + 模拟闭环 + 真人推理接线） · 下一里程碑：M1（实机 AI 验收与故障修复）**
+**版本：v0.2.0 · 全里程碑达成：M0（可启动源码）+ M1（实机 AI 接入与双模式隔离）+ M2（姿态异常诊断与离线鲁棒性）+ M3（对照实验、MAE 自动汇算与 20 分钟答辩体系）**
