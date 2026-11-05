@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { loadSessions, saveSession, clearSessions, makeAdvice, exportSessionsCSV, exportSessionsJSON, computeMaeStats, deriveVerifiedAbsError } from '../src/store.js';
+import { loadSessions, saveSession, clearSessions, makeAdvice, exportSessionsCSV, exportSessionsJSON, computeMaeStats, deriveVerifiedAbsError, getSessionMaeEligibility } from '../src/store.js';
 
 function memoryStorage() {
   const map = new Map();
@@ -121,27 +121,31 @@ test('exportSessionsCSV uses deriveVerifiedAbsError ensuring screen MAE matches 
   assert.equal(deriveVerifiedAbsError({ count: 10, manualCount: 8 }), 2);
   assert.equal(deriveVerifiedAbsError({ count: 5, manualCount: 12 }), 7);
 
-  // Test CSV export consistency with unannotated and corrupted sessions
+  // Test CSV export consistency with unannotated, corrupted, and low-frame sessions
   const sessions = [
     { ...record, id: 'unannotated', mode: 'camera', count: 10, trackedFrames: 100 },
     { ...record, id: 'valid', mode: 'camera', count: 12, manualCount: 10, absError: 999, trackedFrames: 100 },
-    { ...record, id: 'corrupted-negative', mode: 'video', count: 8, manualCount: 0, absError: -8, trackedFrames: 100 }
+    { ...record, id: 'corrupted-negative', mode: 'video', count: 8, manualCount: 0, absError: -8, trackedFrames: 100 },
+    { ...record, id: 'low-frame-ineligible', mode: 'camera', count: 10, manualCount: 1, trackedFrames: 2 }
   ];
 
   const csv = exportSessionsCSV(sessions);
   const lines = csv.replace('\uFEFF', '').trim().split('\r\n');
-  assert.equal(lines.length, 4); // 1 header + 3 rows
+  assert.equal(lines.length, 5); // 1 header + 4 rows
 
   // Row 1: unannotated session must have EMPTY strings for manualCount and absError (NOT "0" or "null"!)
-  assert.match(lines[1], /^"unannotated",.*,"10","1","",""/);
+  assert.match(lines[1], /^"unannotated",.*,"10","1","","","否","未标注人工真值达标次数"/);
 
-  // Row 2: valid session must derive verified absError = |12 - 10| = 2 (NOT persisted 999)
-  assert.match(lines[2], /^"valid",.*,"12","1","10","2"/);
+  // Row 2: valid session must derive verified absError = |12 - 10| = 2 (NOT persisted 999), eligible = 是
+  assert.match(lines[2], /^"valid",.*,"12","1","10","2","是",""/);
 
-  // Row 3: corrupted session must derive verified absError = |8 - 0| = 8 (NOT persisted -8)
-  assert.match(lines[3], /^"corrupted-negative",.*,"8","1","0","8"/);
+  // Row 3: corrupted session must derive verified absError = |8 - 0| = 8 (NOT persisted -8), eligible = 是
+  assert.match(lines[3], /^"corrupted-negative",.*,"8","1","0","8","是",""/);
 
-  // Consistency: the evaluated real sessions' CSV errors average matches computeMaeStats realMae exactly!
+  // Row 4: low frame session must be eligible = 否, reason = 有效姿态跟踪帧数不足
+  assert.match(lines[4], /^"low-frame-ineligible",.*,"10","1","1","9","否","有效姿态跟踪帧数不足/);
+
+  // Consistency: filtering CSV rows where 计入真实MAE == "是" matches computeMaeStats realMae exactly!
   const stats = computeMaeStats(sessions);
   assert.equal(stats.realCount, 2);
   assert.equal(stats.realMae, 5.00); // (2 + 8) / 2 = 5.00

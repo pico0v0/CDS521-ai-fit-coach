@@ -1,5 +1,5 @@
 import { EXERCISES, ExerciseAnalyzer, extractJointAngle, DIFFICULTY_PRESETS } from './exercise.js';
-import { loadSessions, saveSession, clearSessions, makeAdvice, exportSessionsCSV, exportSessionsJSON, computeMaeStats } from './store.js';
+import { loadSessions, saveSession, clearSessions, makeAdvice, exportSessionsCSV, exportSessionsJSON, computeMaeStats, deriveVerifiedAbsError } from './store.js';
 import { createPoseLandmarker } from './pose.js';
 import { drawPose, drawIdle } from './draw.js';
 import { simulatePose } from './simulator.js';
@@ -120,9 +120,15 @@ function reportsPage() {
   return `<div class="page"><div class="page-heading"><div><div class="eyebrow">SESSION REVIEW / LOCAL RECORDS</div><h2>训练报告 <span>PROGRESS TRACKER</span></h2><p>只在浏览器本地保存次数等统计信息，不保存摄像头视频。</p></div><button class="btn btn-secondary" data-action="open-training">+ 新训练</button></div>
     <section class="report-metrics"><article><span>训练记录</span><strong>${sessions.length}</strong><small>SESSIONS</small></article><article><span>累计有效次数</span><strong>${totalCount}</strong><small>REPS</small></article><article><span>平均每次记录</span><strong>${mean}</strong><small>REPS / SESSION</small></article><article><span>真实 AI 对照 MAE</span>${maeStats.realMae !== null ? `<strong style="color:${maeStats.realMae<=0.5?'#86efac':'#fde047'}">${maeStats.realMae.toFixed(2)}</strong><small>REAL AI MAE (N=${maeStats.realCount})</small>` : `<strong style="font-size:12px;color:#94a3b8;line-height:2.4">暂无有效真人对照数据</strong><small>需真实AI实测 + 人工核验</small>`}</article>${maeStats.demoCount > 0 ? `<article><span>模拟算法回归误差</span><strong style="color:#cbd5e1">${maeStats.demoMae.toFixed(2)}</strong><small>SIMULATION (N=${maeStats.demoCount}, 非AI)</small></article>` : ''}</section>
     <div class="report-grid"><section class="panel"><div class="panel-heading"><h3>最近一次训练</h3><span>LATEST SESSION</span></div>
-      ${current ? `<div class="latest-title">${escapeText(EXERCISES[current.exercise]?.name || current.exercise)} <span class="report-chip ${current.mode==='demo'?'demo-chip':(current.mode==='video'?'video-chip':'')}">${current.mode==='demo'?'模拟数据':(current.mode==='video'?'本地视频AI':(current.trackedFrames?'真实摄像头':'摄像头（未跟踪到人体）'))}</span></div><div class="latest-date">${formatDate(current.startedAt)}</div><div class="session-numbers"><div><strong>${current.count}</strong><small>有效次数</small></div><div><strong>${current.partialCount}</strong><small>未达幅度</small></div><div><strong>${(current.faultCounts?.trunk_lean || 0) + (current.faultCounts?.arm_swing || 0) + (current.faultCounts?.arm_asymmetry || 0)}</strong><small>姿态提示</small></div>${Number.isFinite(current.manualCount) ? `<div><strong>${current.manualCount}</strong><small>人工核验</small></div><div><strong style="color:${current.absError===0?'#86efac':'#f59e0b'}">${current.absError}</strong><small>绝对误差</small></div>` : ''}<div><strong>${formatTime(current.durationSeconds)}</strong><small>训练时长</small></div></div><div class="advice-box"><span>✦ 个性化建议 · 规则模板</span><p>${escapeText(makeAdvice(current, current.goal || state.goal, current.fatigue || state.fatigue))}</p></div>` : `<div class="empty-state"><span>◎</span><h3>暂无训练记录</h3><p>进入训练页，开启真实摄像头或模拟演示，结束训练后会自动生成报告。</p><button class="btn btn-primary" data-action="open-training">立即开始 →</button></div>`}
+      ${current ? (() => {
+        const curErr = deriveVerifiedAbsError(current);
+        return `<div class="latest-title">${escapeText(EXERCISES[current.exercise]?.name || current.exercise)} <span class="report-chip ${current.mode==='demo'?'demo-chip':(current.mode==='video'?'video-chip':'')}">${current.mode==='demo'?'模拟数据':(current.mode==='video'?'本地视频AI':(current.trackedFrames?'真实摄像头':'摄像头（未跟踪到人体）'))}</span></div><div class="latest-date">${formatDate(current.startedAt)}</div><div class="session-numbers"><div><strong>${current.count}</strong><small>有效次数</small></div><div><strong>${current.partialCount}</strong><small>未达幅度</small></div><div><strong>${(current.faultCounts?.trunk_lean || 0) + (current.faultCounts?.arm_swing || 0) + (current.faultCounts?.arm_asymmetry || 0)}</strong><small>姿态提示</small></div>${curErr !== null ? `<div><strong>${current.manualCount}</strong><small>人工核验</small></div><div><strong style="color:${curErr===0?'#86efac':'#f59e0b'}">${curErr}</strong><small>绝对误差</small></div>` : ''}<div><strong>${formatTime(current.durationSeconds)}</strong><small>训练时长</small></div></div><div class="advice-box"><span>✦ 个性化建议 · 规则模板</span><p>${escapeText(makeAdvice(current, current.goal || state.goal, current.fatigue || state.fatigue))}</p></div>`;
+      })() : `<div class="empty-state"><span>◎</span><h3>暂无训练记录</h3><p>进入训练页，开启真实摄像头或模拟演示，结束训练后会自动生成报告。</p><button class="btn btn-primary" data-action="open-training">立即开始 →</button></div>`}
     </section><section class="panel"><div class="panel-heading"><h3>最近训练次数</h3><span>LAST 8 SESSIONS</span></div><div class="chart-wrap">${chart.length ? `<div class="bar-chart">${chart.map((s,i)=>`<div class="bar-cell"><span>${s.count}</span><div class="bar ${s.mode==='demo'?'bar-sim':(s.mode==='video'?'bar-video':'')}" style="height:${Math.max(5, Math.round(s.count/max*185))}px"></div><small>${i+1}</small></div>`).join('')}</div><div class="legend"><span class="legend-dot"></span>实时AI <span class="legend-dot dot-video"></span>视频AI <span class="legend-dot sim"></span>模拟</div>` : `<div class="empty-chart">暂无数据，请先完成训练</div>`}</div></section></div>
-    <section class="panel history-panel"><div class="panel-heading"><h3>历史记录</h3><div class="history-actions"><button class="btn btn-sm btn-outline" data-action="export-csv" ${sessions.length?'':'disabled'} title="导出用于 Excel 对照分析的 CSV 表格">⤓ 导出 CSV</button><button class="btn btn-sm btn-outline" data-action="export-json" ${sessions.length?'':'disabled'} title="导出完整 JSON 数据">⤓ 导出 JSON</button><button class="text-danger" data-action="clear-history" ${sessions.length?'':'disabled'}>清空记录</button></div></div><div class="history-table"><div class="history-head"><span>训练日期</span><span>动作</span><span>模式</span><span>系统有效</span><span>人工/误差</span><span>用时</span></div>${sessions.length ? sessions.map(s=>`<div class="history-row"><span>${formatDate(s.startedAt)}</span><span>${escapeText(EXERCISES[s.exercise]?.name || s.exercise)}</span><span>${s.mode==='demo'?'模拟':(s.mode==='video'?'视频AI':'实时')}</span><strong>${s.count}</strong><span>${Number.isFinite(s.manualCount) ? `${s.manualCount} / 误${s.absError}${s.mode==='demo'?'(模)':''}` : '--'}</span><span>${formatTime(s.durationSeconds)}</span></div>`).join('') : '<p class="empty-records">暂无记录</p>'}</div></section>
+    <section class="panel history-panel"><div class="panel-heading"><h3>历史记录</h3><div class="history-actions"><button class="btn btn-sm btn-outline" data-action="export-csv" ${sessions.length?'':'disabled'} title="导出用于 Excel 对照分析的 CSV 表格">⤓ 导出 CSV</button><button class="btn btn-sm btn-outline" data-action="export-json" ${sessions.length?'':'disabled'} title="导出完整 JSON 数据">⤓ 导出 JSON</button><button class="text-danger" data-action="clear-history" ${sessions.length?'':'disabled'}>清空记录</button></div></div><div class="history-table"><div class="history-head"><span>训练日期</span><span>动作</span><span>模式</span><span>系统有效</span><span>人工/误差</span><span>用时</span></div>${sessions.length ? sessions.map(s => {
+      const sErr = deriveVerifiedAbsError(s);
+      return `<div class="history-row"><span>${formatDate(s.startedAt)}</span><span>${escapeText(EXERCISES[s.exercise]?.name || s.exercise)}</span><span>${s.mode==='demo'?'模拟':(s.mode==='video'?'视频AI':'实时')}</span><strong>${s.count}</strong><span>${sErr !== null ? `${s.manualCount} / 误${sErr}${s.mode==='demo'?'(模)':''}` : '--'}</span><span>${formatTime(s.durationSeconds)}</span></div>`;
+    }).join('') : '<p class="empty-records">暂无记录</p>'}</div></section>
     <div class="subtle-warning">注意：模拟模式生成的记录会明确标注为「模拟」，不可用作真实 AI 识别准确率实验数据。</div>
   </div>`;
 }
@@ -165,7 +171,14 @@ function refreshModeUI() {
     : state.mode === 'camera' ? (state.modelReady ? 'AI CAMERA' : 'LOADING MODEL')
     : 'STANDBY';
   const perfTag = document.querySelector('#perfIndicator');
-  if (perfTag) perfTag.textContent = state.mode ? `${state.fps || '--'} FPS` : '-- FPS';
+  if (perfTag) {
+    if (state.mode && state.renderFps !== undefined) {
+      const modeLabel = state.mode === 'demo' ? '演示' : 'AI推理';
+      perfTag.textContent = `渲染 ${state.renderFps} FPS · ${modeLabel} ${state.inferFps || 0} FPS · 耗时 ${state.latencyMs ? state.latencyMs + 'ms' : '0ms'}`;
+    } else {
+      perfTag.textContent = state.mode ? '正在测速…' : '-- FPS';
+    }
+  }
 }
 function updateTrainingUI(snapshot = state.analyzer.snapshot()) {
   if (state.view !== 'training') return;
@@ -356,6 +369,8 @@ async function begin(mode, file = null) {
   state.mode = mode; state.running = true; state.paused = false;
   state.startWall = Date.now(); state.startPerf = performance.now();
   state.pauseDuration = 0; state.lastFrame = 0; state.lastVideoTime = -1;
+  state.fpsFrames = 0; state.inferFrames = 0; state.fpsLastTime = 0;
+  state.renderFps = undefined; state.inferFps = undefined; state.latencyMs = 0;
   state.warningLogs = []; state.modelReady = false; state.trackedFrames = 0; state.targetAchieved = false;
   state.analyzer.configure(state.exercise, { difficulty: state.difficulty, targetReps: state.targetReps });
   const run = ++state.activeRunId;
@@ -398,19 +413,25 @@ async function begin(mode, file = null) {
       if (run !== state.activeRunId) { detector.close(); return; }
       state.detector = detector; state.modelReady = true;
 
-      // Reset to 0s right before starting playback and inference together
+      // Ensure seek to 0s is confirmed before starting playback
       video.currentTime = 0;
+      await new Promise(r => {
+        video.onseeked = () => r();
+        setTimeout(r, 150);
+      });
       await video.play();
       state.startWall = Date.now(); state.startPerf = performance.now();
       refreshModeUI();
       const sourceText = isLocalModel ? '真正的 MediaPipe 姿态模型（本地离线模型）已就绪。' : '真正的 MediaPipe 姿态模型已从网络加载就绪。';
-      modelMessage(`${sourceText}正在对选定视频从第 0 秒开始进行真实 AI 动作评测。`, 'success');
-      inform('已开始对本地视频进行姿态识别与动作计数分析（视频从第 0 秒启动）。');
+      modelMessage(`${sourceText}正在对选定视频进行实时帧采样 AI 动作评测。`, 'success');
+      inform('已开始对本地视频进行实时帧采样姿态分析（从第 0 秒启动采样）。');
       const stage = document.querySelector('#cameraStage');
       stage?.classList.remove('mirror');
 
       video.onended = () => {
-        inform('视频已播放完毕。可点击「结束训练」查看本次评测报告。', 'info');
+        const estTotalFrames = Math.max(1, Math.round((video.duration || 1) * 24));
+        const sampleRate = Math.min(100, Math.round((state.trackedFrames / estTotalFrames) * 100));
+        inform(`视频播放完毕：共有效采样分析 ${state.trackedFrames} 帧（按 24 FPS 估算采样覆盖率约 ${sampleRate}%）。可点击「结束训练」查看本次评测报告。`, 'info');
       };
       state.frame = requestAnimationFrame(renderFrame);
       return;

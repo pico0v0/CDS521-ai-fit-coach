@@ -24,6 +24,12 @@ function runExerciseBenchmark(exerciseId, fps, cycles = 6, options = {}) {
 
   let framesProcessed = 0;
   let faultsDetected = 0;
+  let tpShallow = 0;
+  let fnShallow = 0;
+  let fpShallow = 0;
+  let currentCycle = 0;
+  let prevCyclePartial = 0;
+
   const t0 = performance.now();
 
   for (let t = 0; t <= totalDuration; t += frameInterval) {
@@ -43,6 +49,33 @@ function runExerciseBenchmark(exerciseId, fps, cycles = 6, options = {}) {
     });
 
     if (snapshot.fault) faultsDetected++;
+
+    // Track per-cycle shallow rep classification boundaries (R-009 event-level matching)
+    const cycleIndex = Math.floor(t / period);
+    if (cycleIndex > currentCycle && currentCycle < cycles) {
+      const shallowObserved = (analyzer.partialCount - prevCyclePartial) > 0;
+      const isExpectedShallow = (currentCycle % 4 === 2);
+      if (isExpectedShallow) {
+        if (shallowObserved) tpShallow++;
+        else fnShallow++;
+      } else {
+        if (shallowObserved) fpShallow++;
+      }
+      currentCycle = cycleIndex;
+      prevCyclePartial = analyzer.partialCount;
+    }
+  }
+
+  // Final cycle evaluation
+  if (currentCycle < cycles) {
+    const shallowObserved = (analyzer.partialCount - prevCyclePartial) > 0;
+    const isExpectedShallow = (currentCycle % 4 === 2);
+    if (isExpectedShallow) {
+      if (shallowObserved) tpShallow++;
+      else fnShallow++;
+    } else {
+      if (shallowObserved) fpShallow++;
+    }
   }
 
   const elapsedWallMs = performance.now() - t0;
@@ -61,6 +94,9 @@ function runExerciseBenchmark(exerciseId, fps, cycles = 6, options = {}) {
     countedShallow,
     absError,
     faultsDetected,
+    tpShallow,
+    fnShallow,
+    fpShallow,
     elapsedWallMs: elapsedWallMs.toFixed(1),
     throughputFps
   };
@@ -83,8 +119,11 @@ export function runAllBenchmarks() {
   const totalAbsError = results.reduce((sum, r) => sum + r.absError, 0);
   const overallMAE = (totalAbsError / results.length).toFixed(3);
   const totalExpectedShallow = results.reduce((sum, r) => sum + r.expectedShallowReps, 0);
-  const totalDetectedShallow = results.reduce((sum, r) => sum + Math.min(r.countedShallow, r.expectedShallowReps), 0);
-  const shallowRecallPct = totalExpectedShallow > 0 ? (totalDetectedShallow / totalExpectedShallow * 100).toFixed(1) + '%' : 'N/A';
+  const totalTpShallow = results.reduce((sum, r) => sum + r.tpShallow, 0);
+  const totalFnShallow = results.reduce((sum, r) => sum + r.fnShallow, 0);
+  const shallowRecallPct = (totalTpShallow + totalFnShallow > 0)
+    ? ((totalTpShallow / (totalTpShallow + totalFnShallow)) * 100).toFixed(1) + '%'
+    : 'N/A';
 
   // Generate Markdown report
   const tableRows = results.map(r =>
@@ -102,7 +141,7 @@ export function runAllBenchmarks() {
 
 - **总评测样本轮次**：${results.length} 组独立长时序列
 - **全场景平均绝对误差（Overall MAE）**：**${overallMAE}**（基准达标）
-- **浅动作识别召回率（Shallow Rep Recall）**：**${shallowRecallPct}**（实算：检出 ${totalDetectedShallow}/${totalExpectedShallow}，未达演示阈值动作均被判定为 partial 不予计数）
+- **浅动作识别召回率（Shallow Rep Recall）**：**${shallowRecallPct}**（逐轮事件级实算：TP=${totalTpShallow}, FN=${totalFnShallow}，未达演示阈值动作均被准确判定为 partial 不予计数）
 - **纯算法规则吞吐能力**：**> 1,500 FPS**（纯 CPU 状态机基准测试；实机浏览器 MediaPipe 推理耗时与 FPS 请参考实机运行面板）
 
 ---

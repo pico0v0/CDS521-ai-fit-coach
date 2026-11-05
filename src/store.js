@@ -56,16 +56,28 @@ export function deriveVerifiedAbsError(s) {
   return Math.abs(s.count - s.manualCount);
 }
 
+export function getSessionMaeEligibility(s) {
+  if (!s) return { eligible: false, reason: '会话对象为空' };
+  if (s.mode !== 'camera' && s.mode !== 'video') {
+    return { eligible: false, reason: s.mode === 'demo' ? '模拟演示数据' : '非真实AI模式' };
+  }
+  const verifiedError = deriveVerifiedAbsError(s);
+  if (verifiedError === null) {
+    return { eligible: false, reason: '未标注人工真值达标次数' };
+  }
+  if (typeof s.trackedFrames !== 'number' || !Number.isFinite(s.trackedFrames) || s.trackedFrames < 5) {
+    return { eligible: false, reason: '有效姿态跟踪帧数不足(<5帧)' };
+  }
+  return { eligible: true, reason: '' };
+}
+
 export function computeMaeStats(sessions = []) {
-  const realEvaluated = (sessions || []).filter(s =>
-    (s.mode === 'camera' || s.mode === 'video') &&
-    deriveVerifiedAbsError(s) !== null &&
-    typeof s.trackedFrames === 'number' && Number.isFinite(s.trackedFrames) && s.trackedFrames >= 5
-  ).map(s => ({
-    ...s,
-    // Strictly compute verified non-negative absolute error from verified count and manualCount
-    verifiedAbsError: deriveVerifiedAbsError(s)
-  }));
+  const realEvaluated = (sessions || []).filter(s => getSessionMaeEligibility(s).eligible)
+    .map(s => ({
+      ...s,
+      // Strictly compute verified non-negative absolute error from verified count and manualCount
+      verifiedAbsError: deriveVerifiedAbsError(s)
+    }));
 
   const demoEvaluated = (sessions || []).filter(s =>
     s.mode === 'demo' &&
@@ -91,10 +103,11 @@ export function computeMaeStats(sessions = []) {
 }
 
 export function exportSessionsCSV(sessions) {
-  const headers = ['ID', '训练时间', '动作名称', '动作代码', '运行模式', '跟踪有效帧数', '系统有效次数', '未达幅度次数', '人工核验达标次数', '绝对误差', '躯干前倾次数', '大臂借力次数', '双臂不对称次数', '训练时长(秒)', '训练目标', '主观疲劳'];
+  const headers = ['ID', '训练时间', '动作名称', '动作代码', '运行模式', '跟踪有效帧数', '系统有效次数', '未达幅度次数', '人工核验达标次数', '绝对误差', '计入真实MAE', '排除原因', '躯干前倾次数', '大臂借力次数', '双臂不对称次数', '训练时长(秒)', '训练目标', '主观疲劳'];
   const rows = (sessions || []).map(s => {
     const verifiedError = deriveVerifiedAbsError(s);
     const hasManual = typeof s.manualCount === 'number' && Number.isInteger(s.manualCount) && s.manualCount >= 0;
+    const { eligible, reason } = getSessionMaeEligibility(s);
     return [
       s.id,
       s.startedAt,
@@ -106,6 +119,8 @@ export function exportSessionsCSV(sessions) {
       s.partialCount || 0,
       hasManual ? s.manualCount : '',
       verifiedError !== null ? verifiedError : '',
+      eligible ? '是' : '否',
+      reason,
       s.faultCounts?.trunk_lean || 0,
       s.faultCounts?.arm_swing || 0,
       s.faultCounts?.arm_asymmetry || 0,

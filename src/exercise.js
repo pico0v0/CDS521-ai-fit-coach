@@ -196,8 +196,10 @@ export class ExerciseAnalyzer {
     this.faultCounts = { trunk_lean: 0, arm_swing: 0, arm_asymmetry: 0 };
     this.lastFaultTimes = {};
     this.currentFault = null;
+    this.minLegSpread = Infinity;
     this.peakLegSpread = 0;
-    this.hasLegTracking = false;
+    this.legTrackingLost = false;
+    this.hadValidLegRatio = false;
   }
   update({ angle, visible = true, timestamp, side = null, landmarks = null }) {
     if (!Number.isFinite(timestamp)) throw new Error('timestamp must be finite milliseconds');
@@ -207,6 +209,7 @@ export class ExerciseAnalyzer {
     if (sinceLast > 1200) {
       // Background tabs or long inference stalls cannot bridge an unfinished rep.
       this.ready = false; this.inRep = false; this.lastSmooth = null;
+      this.minLegSpread = Infinity; this.peakLegSpread = 0; this.legTrackingLost = false; this.hadValidLegRatio = false;
     }
     if (!visible || !Number.isFinite(angle) || angle < 5 || angle > 180) {
       // A lost pose must not complete a rep; reacquire while extended.
@@ -214,7 +217,10 @@ export class ExerciseAnalyzer {
       this.phase = '请调整机位'; this.lastAngle = null; this.lastEvent = null;
       this.depthProgress = 0;
       this.currentFault = null;
+      this.minLegSpread = Infinity;
       this.peakLegSpread = 0;
+      this.legTrackingLost = false;
+      this.hadValidLegRatio = false;
       return this.snapshot();
     }
     this.visible = true;
@@ -229,6 +235,10 @@ export class ExerciseAnalyzer {
       this.phase = '侧别跳变 · 请保持单侧面向镜头';
       this.depthProgress = 0;
       this.currentFault = null;
+      this.minLegSpread = Infinity;
+      this.peakLegSpread = 0;
+      this.legTrackingLost = false;
+      this.hadValidLegRatio = false;
       this.lastEvent = { type: 'warning', message: '检测到动作侧别切换，本轮动作已重置', timestamp };
       return this.snapshot();
     }
@@ -237,13 +247,17 @@ export class ExerciseAnalyzer {
       this.activeSide = side;
     }
 
-    if (this.exercise.id === 'jumping_jack' && landmarks) {
+    // Monitor lower body keypoints for jumping jacks (R-005)
+    if (this.exercise.id === 'jumping_jack') {
       const legRatio = getLegSpreadRatio(landmarks);
       if (legRatio !== null) {
-        this.hasLegTracking = true;
+        this.hadValidLegRatio = true;
+        this.minLegSpread = Math.min(this.minLegSpread, legRatio);
         if (this.inRep) {
           this.peakLegSpread = Math.max(this.peakLegSpread, legRatio);
         }
+      } else if (this.inRep) {
+        this.legTrackingLost = true;
       }
     }
 
@@ -276,12 +290,14 @@ export class ExerciseAnalyzer {
       this.peakAngle = measured;
       this.phase = '动作进行中';
       if (side) this.activeSide = side;
-      this.peakLegSpread = 0;
-      if (this.exercise.id === 'jumping_jack' && landmarks) {
+
+      // Initialize rep spread tracking
+      if (this.exercise.id === 'jumping_jack') {
         const legRatio = getLegSpreadRatio(landmarks);
         if (legRatio !== null) {
-          this.hasLegTracking = true;
-          this.peakLegSpread = legRatio;
+          this.peakLegSpread = Math.max(this.peakLegSpread, legRatio);
+        } else {
+          this.legTrackingLost = true;
         }
       }
     } else if (this.inRep) {
@@ -308,9 +324,26 @@ export class ExerciseAnalyzer {
       if (isAtExtended) {
         const duration = timestamp - this.repStartedAt;
         const armComplete = isExpand ? this.peakAngle >= full : this.minAngle <= full;
-        const legComplete = this.exercise.id === 'jumping_jack' && this.hasLegTracking
-          ? this.peakLegSpread >= 1.65
-          : true;
+        let legComplete = true;
+        let legFaultReason = '';
+
+        if (this.exercise.id === 'jumping_jack') {
+          const currentRatio = getLegSpreadRatio(landmarks);
+          if (!this.hadValidLegRatio || this.legTrackingLost || currentRatio === null) {
+            legComplete = false;
+            legFaultReason = '下肢关键点不可见或被遮挡，无法核验开合跳双腿动作';
+          } else if (this.minLegSpread > 1.35) {
+            legComplete = false;
+            legFaultReason = '双腿全程未见并拢，开合跳须从双脚并拢姿势开始';
+          } else if (this.peakLegSpread < 1.65) {
+            legComplete = false;
+            legFaultReason = '双腿展开幅度不足，开合跳需双臂与双腿同步充分展开';
+          } else if (currentRatio > 1.40) {
+            legComplete = false;
+            legFaultReason = '双腿结束未收回并拢，开合跳每轮须返回双脚并拢起点';
+          }
+        }
+
         const complete = armComplete && legComplete;
         if (duration >= MIN_REP_MS && duration >= MIN_TRACKING_INTERVAL_MS) {
           if (complete) {
@@ -320,9 +353,7 @@ export class ExerciseAnalyzer {
             this.lastEvent = { type: 'success', message, isGoalAchieved, timestamp };
           } else {
             this.partialCount++;
-            const message = (!legComplete && armComplete)
-              ? '开合跳需双腿与双臂同步开合（双腿未充分展开）'
-              : '本次动作幅度未达到演示阈值（不计数）';
+            const message = legFaultReason || (armComplete ? '动作幅度未达标（不计数）' : '本次动作幅度未达到演示阈值（不计数）');
             this.lastEvent = { type: 'warning', message, timestamp };
           }
         }
@@ -331,7 +362,11 @@ export class ExerciseAnalyzer {
         this.phase = '已就绪';
         this.minAngle = 180;
         this.peakAngle = 0;
-        this.peakLegSpread = 0;
+        const currentRatio = getLegSpreadRatio(landmarks);
+        this.minLegSpread = currentRatio ?? Infinity;
+        this.peakLegSpread = currentRatio ?? 0;
+        this.legTrackingLost = false;
+        this.hadValidLegRatio = (currentRatio !== null);
       }
     }
     return this.snapshot();

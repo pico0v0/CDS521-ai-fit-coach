@@ -33,7 +33,7 @@ for(const id of ['squat','curl','jumping_jack']) {
     for(let t=0;t<4700*4;t+=100) {
       const pose=simulatePose(t,id);
       const joint=extractJointAngle(pose,id);
-      const state=analyzer.update({angle:joint?.angle,visible:!!joint,timestamp:t+1});
+      const state=analyzer.update({angle:joint?.angle,visible:!!joint,timestamp:t+1,landmarks:pose});
       if(state.event)events.push(state.event.type);
     }
     assert.equal(analyzer.count,3);
@@ -238,18 +238,41 @@ test('R-004 regression: side switch while tracked side stays bent does NOT count
   assert.equal(a.count, 0, 'Abruptly switching to straight opposite leg must not count as a completed squat');
 });
 
-test('R-005 regression: arm-only movement with static legs does NOT count as jumping jacks', () => {
-  const a = new ExerciseAnalyzer('jumping_jack');
-  const standing = simulatePose(0, 'jumping_jack');
-  for (let t = 0; t < 4 * 4700; t += 100) {
-    const p = simulatePose(t, 'jumping_jack');
-    // Lock all leg landmarks to standing position
-    for (let idx of [25, 26, 27, 28, 29, 30]) p[idx] = standing[idx];
-    const j = extractJointAngle(p, 'jumping_jack');
-    a.update({ angle: j?.angle, visible: !!j, timestamp: t + 1, side: j?.side, landmarks: p });
+test('R-005 regression: jumping jacks require bidirectional leg coordination across all 4 scenarios', () => {
+  function testJumpingJackScenario(mode) {
+    const a = new ExerciseAnalyzer('jumping_jack');
+    const standing = simulatePose(0, 'jumping_jack');
+    const spread = simulatePose(2200, 'jumping_jack');
+    for (let t = 0; t < 4 * 4700; t += 100) {
+      const p = simulatePose(t, 'jumping_jack');
+      if (mode === 'closed') for (const i of [25, 26, 27, 28, 29, 30]) p[i] = { ...standing[i] };
+      if (mode === 'wide') for (const i of [25, 26, 27, 28, 29, 30]) p[i] = { ...spread[i] };
+      if (mode === 'occluded') for (const i of [27, 28]) p[i].visibility = 0;
+      const j = extractJointAngle(p, 'jumping_jack');
+      a.update({ angle: j?.angle, visible: !!j, timestamp: t + 1, side: j?.side, landmarks: p });
+    }
+    return { count: a.count, partial: a.partialCount };
   }
 
-  assert.equal(a.count, 0, 'Arm-only motion without leg spread must NOT be counted as complete jumping jacks');
+  // 1. Legs held closed: arms only -> count must be 0
+  const closedRes = testJumpingJackScenario('closed');
+  assert.equal(closedRes.count, 0, 'Legs held closed must not count as jumping jacks');
+  assert.equal(closedRes.partial, 4);
+
+  // 2. Legs held permanently wide: no start/end closing cycle -> count must be 0
+  const wideRes = testJumpingJackScenario('wide');
+  assert.equal(wideRes.count, 0, 'Legs permanently wide without closing cycle must not count as jumping jacks');
+  assert.equal(wideRes.partial, 4);
+
+  // 3. Legs occluded/invisible: cannot verify lower body -> count must be 0
+  const occludedRes = testJumpingJackScenario('occluded');
+  assert.equal(occludedRes.count, 0, 'Legs occluded must not be defaulted to complete jumping jacks');
+  assert.equal(occludedRes.partial, 4);
+
+  // 4. Normal synchronized jumping jacks: 3 complete reps, 1 planned shallow rep
+  const normalRes = testJumpingJackScenario('normal');
+  assert.equal(normalRes.count, 3, 'Normal jumping jacks must retain 3 completed reps');
+  assert.equal(normalRes.partial, 1, 'Normal jumping jacks must retain 1 shallow rep');
 });
 
 test('R-006 regression: first posture fault within first 3000ms is immediately triggered', () => {
