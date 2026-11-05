@@ -12,6 +12,12 @@ export const EXERCISES = Object.freeze({
   },
 });
 
+export const DIFFICULTY_PRESETS = Object.freeze({
+  beginner: { name: '初学', squat: 122, curl: 80 },
+  standard: { name: '标准', squat: 110, curl: 65 },
+  advanced: { name: '进阶', squat: 95, curl: 50 },
+});
+
 export function angleDegrees(a, b, c) {
   if (![a, b, c].every(p => p && Number.isFinite(p.x) && Number.isFinite(p.y))) return null;
   const abx = a.x - b.x; const aby = a.y - b.y;
@@ -99,10 +105,14 @@ const MIN_REP_MS = 650;
 const MIN_TRACKING_INTERVAL_MS = 80;
 
 export class ExerciseAnalyzer {
-  constructor(exerciseId = 'squat') { this.configure(exerciseId); }
-  configure(exerciseId) {
+  constructor(exerciseId = 'squat', options = {}) { this.configure(exerciseId, options); }
+  configure(exerciseId, options = {}) {
     if (!EXERCISES[exerciseId]) throw new Error(`Unknown exercise: ${exerciseId}`);
-    this.exercise = EXERCISES[exerciseId];
+    const base = EXERCISES[exerciseId];
+    const difficulty = options.difficulty || 'standard';
+    const targetAngle = options.targetAngle ?? (DIFFICULTY_PRESETS[difficulty]?.[exerciseId] ?? base.full);
+    this.exercise = { ...base, full: targetAngle, difficulty };
+    this.targetReps = options.targetReps || 0;
     this.count = 0;
     this.partialCount = 0;
     this.phase = '等待站稳';
@@ -189,7 +199,9 @@ export class ExerciseAnalyzer {
         if (duration >= MIN_REP_MS && duration >= MIN_TRACKING_INTERVAL_MS) {
           if (complete) {
             this.count++;
-            this.lastEvent = { type: 'success', message: `完成第 ${this.count} 次${this.exercise.name}`, timestamp };
+            const isGoalAchieved = this.targetReps > 0 && this.count >= this.targetReps;
+            const message = isGoalAchieved ? `🎉 达成目标！已完成 ${this.count} 次${this.exercise.name}！` : `完成第 ${this.count} 次${this.exercise.name}`;
+            this.lastEvent = { type: 'success', message, isGoalAchieved, timestamp };
           } else {
             this.partialCount++;
             this.lastEvent = { type: 'warning', message: '本次动作幅度未达到演示阈值（不计数）', timestamp };
@@ -207,6 +219,7 @@ export class ExerciseAnalyzer {
     return { count: this.count, partialCount: this.partialCount, phase: this.phase,
       angle: this.lastAngle, visible: this.visible, event: this.lastEvent, samples: this.samples,
       side: this.activeSide, progress: this.depthProgress, minAngle: this.inRep ? Math.round(this.minAngle) : null,
-      fault: this.currentFault, faultCounts: { ...this.faultCounts } };
+      fault: this.currentFault, faultCounts: { ...this.faultCounts },
+      difficulty: this.exercise.difficulty, fullAngle: this.exercise.full, targetReps: this.targetReps };
   }
 }

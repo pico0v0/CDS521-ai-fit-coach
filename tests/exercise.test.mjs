@@ -146,3 +146,26 @@ test('checkPostureFault detects upper arm swinging during curl', () => {
   assert.equal(swingFault.code, 'arm_swing');
   assert.match(swingFault.message, /大臂尽量贴紧躯干/);
 });
+
+test('analyzer supports difficulty presets and target rep goal achievement', () => {
+  // Beginner preset for squat sets full threshold to 122°
+  const beginner = new ExerciseAnalyzer('squat', { difficulty: 'beginner', targetReps: 1 });
+  assert.equal(beginner.exercise.full, 122);
+  assert.equal(beginner.targetReps, 1);
+
+  // Perform 1 rep: descend below 122° and ascend back to 170°
+  beginner.update({ angle: 170, timestamp: 100 });
+  beginner.update({ angle: 170, timestamp: 200 });
+  beginner.update({ angle: 115, timestamp: 300 });
+  beginner.update({ angle: 115, timestamp: 400 });
+  beginner.update({ angle: 115, timestamp: 500 });
+  beginner.update({ angle: 115, timestamp: 600 });
+  beginner.update({ angle: 115, timestamp: 700 });
+  beginner.update({ angle: 170, timestamp: 1000 });
+  beginner.update({ angle: 170, timestamp: 1100 });
+  const finalState = beginner.update({ angle: 170, timestamp: 1200 });
+
+  assert.equal(beginner.count, 1);
+  assert.ok(finalState.event?.isGoalAchieved);
+  assert.match(finalState.event.message, /达成目标/);
+});

@@ -1,4 +1,4 @@
-import { EXERCISES, ExerciseAnalyzer, extractJointAngle } from './exercise.js';
+import { EXERCISES, ExerciseAnalyzer, extractJointAngle, DIFFICULTY_PRESETS } from './exercise.js';
 import { loadSessions, saveSession, clearSessions, makeAdvice } from './store.js';
 import { createPoseLandmarker } from './pose.js';
 import { drawPose, drawIdle } from './draw.js';
@@ -7,7 +7,9 @@ import { simulatePose } from './simulator.js';
 const root = document.querySelector('#app');
 const state = {
   view: 'home', exercise: 'squat', goal: 'habit', fatigue: 'normal', facing: 'user',
-  voice: false, mode: null, running: false, paused: false, analyzer: new ExerciseAnalyzer('squat'),
+  difficulty: 'standard', targetReps: 10, targetAchieved: false,
+  voice: false, mode: null, running: false, paused: false,
+  analyzer: new ExerciseAnalyzer('squat', { difficulty: 'standard', targetReps: 10 }),
   stream: null, detector: null, frame: 0, lastFrame: 0, lastVideoTime: -1,
   startWall: 0, startPerf: 0, pauseAt: 0, pauseDuration: 0, warningLogs: [],
   lastSession: null, toast: '', activeRunId: 0, modelReady: false, trackedFrames: 0,
@@ -86,10 +88,10 @@ function trainingPage() {
       <div class="instruction"><span class="info-dot">i</span><div><strong>机位建议</strong><p id="cameraGuidance">${ex.guidance}</p></div></div>
     </section><aside class="analysis-column">
       <div class="module-heading"><div><span class="section-index">02</span><strong>动作设置与分析</strong></div><span class="mini-sub">REAL-TIME</span></div>
-      <div class="settings-card"><div class="input-label">选择动作 <span>EXERCISE</span></div><div class="exercise-switch"><button type="button" data-exercise="squat" class="exercise-btn ${state.exercise==='squat'?'selected':''}">深蹲 <small>SQUAT</small></button><button type="button" data-exercise="curl" class="exercise-btn ${state.exercise==='curl'?'selected':''}">弯举 <small>CURL</small></button></div><div class="select-grid"><label>训练目标<select id="goalInput"><option value="habit" ${state.goal==='habit'?'selected':''}>培养习惯</option><option value="strength" ${state.goal==='strength'?'selected':''}>力量训练</option><option value="endurance" ${state.goal==='endurance'?'selected':''}>提高耐力</option></select></label><label>目前疲劳<select id="fatigueInput"><option value="normal" ${state.fatigue==='normal'?'selected':''}>一般</option><option value="low" ${state.fatigue==='low'?'selected':''}>较低</option><option value="high" ${state.fatigue==='high'?'selected':''}>较高</option></select></label></div><div class="minor-options"><label class="voice-option"><input type="checkbox" id="voiceToggle" ${state.voice?'checked':''}> <span>语音反馈</span></label><label>摄像头 <select id="facingSelect"><option value="user" ${state.facing==='user'?'selected':''}>前置</option><option value="environment" ${state.facing==='environment'?'selected':''}>后置</option></select></label></div></div>
+      <div class="settings-card"><div class="input-label">选择动作 <span>EXERCISE</span></div><div class="exercise-switch"><button type="button" data-exercise="squat" class="exercise-btn ${state.exercise==='squat'?'selected':''}">深蹲 <small>SQUAT</small></button><button type="button" data-exercise="curl" class="exercise-btn ${state.exercise==='curl'?'selected':''}">弯举 <small>CURL</small></button></div><div class="select-grid"><label>训练目标<select id="goalInput"><option value="habit" ${state.goal==='habit'?'selected':''}>培养习惯</option><option value="strength" ${state.goal==='strength'?'selected':''}>力量训练</option><option value="endurance" ${state.goal==='endurance'?'selected':''}>提高耐力</option></select></label><label>目前疲劳<select id="fatigueInput"><option value="normal" ${state.fatigue==='normal'?'selected':''}>一般</option><option value="low" ${state.fatigue==='low'?'selected':''}>较低</option><option value="high" ${state.fatigue==='high'?'selected':''}>较高</option></select></label></div><div class="select-grid" style="margin-top:10px"><label>动作难度<select id="difficultySelect"><option value="beginner" ${state.difficulty==='beginner'?'selected':''}>初学 (幅度阈值较低)</option><option value="standard" ${state.difficulty==='standard'?'selected':''}>标准 (推荐)</option><option value="advanced" ${state.difficulty==='advanced'?'selected':''}>进阶 (更高幅度要求)</option></select></label><label>目标次数<select id="targetRepsSelect"><option value="0" ${state.targetReps===0?'selected':''}>自由练习 (不限)</option><option value="5" ${state.targetReps===5?'selected':''}>5 次 (体验组)</option><option value="10" ${state.targetReps===10?'selected':''}>10 次 (标准组)</option><option value="15" ${state.targetReps===15?'selected':''}>15 次 (耐力组)</option></select></label></div><div class="minor-options"><label class="voice-option"><input type="checkbox" id="voiceToggle" ${state.voice?'checked':''}> <span>语音反馈</span></label><label>摄像头 <select id="facingSelect"><option value="user" ${state.facing==='user'?'selected':''}>前置</option><option value="environment" ${state.facing==='environment'?'selected':''}>后置</option></select></label></div></div>
       <div class="stat-large"><div><span class="stat-label">有效次数</span><div class="big-number" id="repsCount">00</div></div><div class="stat-side"><div><span>进行时间</span><strong id="clock">00:00</strong></div><div><span>未达演示幅度</span><strong id="partialCount">00</strong></div></div></div>
       <div class="stat-row"><div class="stat-small"><span>关节角度 <small>2D EST.</small></span><strong id="angleStat">-- <small>°</small></strong></div><div class="stat-small"><span>动作状态</span><strong id="phaseStat" class="phase-text">等待站稳</strong></div></div>
-      <div class="depth-card"><div class="depth-head"><span>动作深度完成度</span><strong id="depthPercent">0%</strong></div><div class="depth-meter-track"><div class="depth-meter-bar" id="depthBar"></div></div><div class="depth-labels"><span>起始准备 (${ex.extended}°)</span><span id="activeSideBadge" class="side-badge">待识别肢体</span><span>达标幅度 (${ex.full}°)</span></div></div>
+      <div class="depth-card"><div class="depth-head"><span>动作深度完成度</span><strong id="depthPercent">0%</strong></div><div class="depth-meter-track"><div class="depth-meter-bar" id="depthBar"></div></div><div class="depth-labels"><span>起始准备 (${ex.extended}°)</span><span id="activeSideBadge" class="side-badge">待识别肢体</span><span id="targetDepthLabel">达标幅度 (${state.analyzer.exercise.full}°)</span></div></div>
       <div class="feedback-card"><div class="feedback-head"><span class="feedback-indicator"></span><strong>教练反馈</strong><span>LIVE FEEDBACK</span></div><p id="feedbackText" aria-live="polite">准备就绪。请先选择摄像头或模拟演示。</p><div class="feedback-bottom">基于动作规则，不用于医学诊断</div></div>
     </aside></div>
     <section class="notes-line"><div>✧ <strong>真实 AI 模式</strong>：姿态识别由 MediaPipe 完成</div><div>◇ <strong>模拟演示</strong>：合成骨架测试算法，不代表真实模型表现</div></section>
@@ -122,13 +124,21 @@ function refreshModeUI() {
   const pill = document.querySelector('#modePill');
   pill.textContent = state.mode === 'demo' ? '● 模拟输入 · 非 AI' : state.mode === 'camera' ? (state.modelReady ? '● 真实 AI 识别' : '◌ AI 模型加载中') : '● 等待开始';
   pill.className = `mode-pill ${state.mode==='demo'?'pill-demo':''} ${state.mode==='camera'?'pill-live':''}`;
-  document.querySelector('#startCamera').disabled = !!state.mode;
+  const startCamBtn = document.querySelector('#startCamera');
+  if (startCamBtn) {
+    startCamBtn.disabled = !!state.mode;
+    startCamBtn.innerHTML = state.mode === 'camera' && !state.modelReady ? '⏳ 正在连接…' : '◉ &nbsp; 启动 AI 摄像头';
+  }
   document.querySelector('#startDemo').disabled = !!state.mode;
   document.querySelector('#pauseBtn').disabled = !state.mode;
   document.querySelector('#pauseBtn').textContent = state.paused ? '继续' : '暂停';
   document.querySelector('#endBtn').disabled = !state.mode;
   document.querySelectorAll('[data-exercise]').forEach(b=>b.disabled=!!state.mode);
   document.querySelector('#facingSelect').disabled = !!state.mode;
+  const diffSelect = document.querySelector('#difficultySelect');
+  const targetSelect = document.querySelector('#targetRepsSelect');
+  if (diffSelect) diffSelect.disabled = !!state.mode;
+  if (targetSelect) targetSelect.disabled = !!state.mode;
   document.querySelector('#stageIndicator').textContent = state.mode === 'demo' ? 'SIMULATED' : state.mode === 'camera' ? (state.modelReady ? 'AI CAMERA' : 'LOADING MODEL') : 'STANDBY';
   const perfTag = document.querySelector('#perfIndicator');
   if (perfTag) perfTag.textContent = state.mode ? `${state.fps || '--'} FPS` : '-- FPS';
@@ -137,10 +147,14 @@ function updateTrainingUI(snapshot = state.analyzer.snapshot()) {
   if (state.view !== 'training') return;
   const $ = sel => document.querySelector(sel);
   $('#repsCount').textContent = int(snapshot.count);
+  $('#repsCount').style.color = state.targetAchieved ? '#fde047' : '';
   $('#partialCount').textContent = int(snapshot.partialCount);
   $('#angleStat').innerHTML = snapshot.angle === null ? '-- <small>°</small>' : `${snapshot.angle} <small>°</small>`;
   $('#phaseStat').textContent = snapshot.phase;
   $('#clock').textContent = formatTime(activeSeconds());
+
+  const targetLabel = $('#targetDepthLabel');
+  if (targetLabel) targetLabel.textContent = `达标幅度 (${state.analyzer.exercise.full}°)`;
 
   const depthBar = $('#depthBar');
   const depthPercent = $('#depthPercent');
@@ -186,6 +200,10 @@ function onResult(landmarks, time) {
   });
   updateTrainingUI(snapshot);
   if (snapshot.event) {
+    if (snapshot.event.isGoalAchieved) {
+      state.targetAchieved = true;
+      toast('🎉 恭喜达成目标！已完成本次设定的训练次数！');
+    }
     state.warningLogs.push(snapshot.event);
     inform(snapshot.event.message, snapshot.event.type);
     if (state.voice && window.speechSynthesis) {
@@ -265,7 +283,8 @@ async function begin(mode) {
   state.mode = mode; state.running = true; state.paused = false;
   state.startWall = Date.now(); state.startPerf = performance.now();
   state.pauseDuration = 0; state.lastFrame = 0; state.lastVideoTime = -1;
-  state.warningLogs = []; state.modelReady = false; state.trackedFrames = 0; state.analyzer.configure(state.exercise);
+  state.warningLogs = []; state.modelReady = false; state.trackedFrames = 0; state.targetAchieved = false;
+  state.analyzer.configure(state.exercise, { difficulty: state.difficulty, targetReps: state.targetReps });
   const run = ++state.activeRunId;
   refreshModeUI(); updateTrainingUI();
   if (mode === 'demo') {
@@ -368,6 +387,16 @@ document.addEventListener('change', event=>{
   if(id==='fatigueInput') state.fatigue=value;
   if(id==='voiceToggle') state.voice=event.target.checked;
   if(id==='facingSelect') state.facing=value;
+  if(id==='difficultySelect') {
+    state.difficulty = value;
+    state.analyzer.configure(state.exercise, { difficulty: state.difficulty, targetReps: state.targetReps });
+    updateTrainingUI();
+  }
+  if(id==='targetRepsSelect') {
+    state.targetReps = Number(value);
+    state.analyzer.configure(state.exercise, { difficulty: state.difficulty, targetReps: state.targetReps });
+    updateTrainingUI();
+  }
 });
 window.addEventListener('keydown', event => {
   if (event.code === 'Space' && state.view === 'training' && state.mode) {
