@@ -1,5 +1,26 @@
 # CHANGELOG（每轮 AI 必须追加）
 
+## v0.2.1-r8 — 第八轮 P1 专项彻底闭环：消除首帧重复计数、首帧推理失败阻断与真实启动路径端到端测试（2026-11-05）
+
+### 已修复问题（R-003 专项定向返修与审查验收彻底对齐）
+- **R-003 [P1/统计准确性] 消除首帧 `trackedFrames` 重复累加缺陷**：
+  - `src/app.js`：
+    - 消除首帧预推理成功后手动累加 `state.trackedFrames++` 的代码行，统一交由 `onResult()` 唯一入口进行检出判定与计数；
+    - 首帧检出 1 个人体时，严格满足 `totalInferredFrames = 1, trackedFrames = 1`；首帧无人体时，严格满足 `totalInferredFrames = 1, trackedFrames = 0`，彻底闭环“推理 1 帧、有效跟踪 2 帧”的反例。
+- **R-003 [P1/启动屏障] 首帧预推理失败严格阻断视频播放与状态就绪**：
+  - `src/app.js`：
+    - 消除原先吞掉首帧推理异常并仅输出 `console.warn` 的静默 catch 块；
+    - 若首帧 `detectForVideo()` 抛出异常，立即抛出明确错误至外层 `catch`，彻底中断启动流程：`video.play()` 绝不被调用、`state.mode` 清空为 `null`、`state.modelReady` 保持 `false`、释放 MediaPipe 检测器并向用户展示明确失败警告。
+- **R-003 [P2/生命周期] 视频加载超时防护**：
+  - `src/app.js`：为视频首帧加载 Promise 增加 10 秒可控超时与事件监听清理机制，防止文件异常时 Promise 永久悬挂。
+- **测试扩充：真正的 `begin('video')` 业务路径端到端集成测试**：
+  - `tests/store.test.mjs`：新增测试 34，引入受控 mock DOM 与 mock detector，真实调用 `begin('video')` 业务路径，全量覆盖：
+    1. 首帧检出 1 人：`inferredFrames = 1, trackedFrames = 1, mode = 'video', modelReady = true, play = true`；
+    2. 首帧无人体：`inferredFrames = 1, trackedFrames = 0, mode = 'video', modelReady = true, play = true`；
+    3. 首帧推理异常抛出：`inferredFrames = 0, trackedFrames = 0, mode = null, modelReady = false, play = false`；
+    4. 35 次推断包含 17 次人体检出的多帧时间线模拟，全程维持 `totalInferredFrames >= trackedFrames`。
+  - 全套 34 项单元测试 100% PASS。
+
 ## v0.2.1-r7 — 第七轮 P1 专项彻底闭环：初学者开合跳难度阈值协同、峰值同步容差防护、视频累计推理帧数与耗时均值纠偏（2026-11-05）
 
 ### 已修复问题（P1 专项攻坚与审查验收彻底对齐）

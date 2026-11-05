@@ -1,4 +1,4 @@
-# TEST_RESULTS — 本轮已执行与未执行（v0.2.1-r7）
+# TEST_RESULTS — 本轮已执行与未执行（v0.2.1-r8）
 
 > **坚守学术诚实与证据原则**：本文件记录实际执行与未执行内容。算法模拟通过绝不代表真实 AI 摄像头通过。
 
@@ -7,14 +7,14 @@
 | 命令 | 预期与测试目标 | 实际结果 | 核心指标 / 证据摘要 |
 | :--- | :--- | :--- | :--- |
 | `npm run check` | 检查 6 个 ES 核心模块语法有效性 | **PASS** | 6/6 模块语法检查通过，无任何语法、导入或引用错误 |
-| `npm test` | 执行全量单元测试（含 R-005 全场景协同/初学者模式、R-003 视频时间线单测） | **PASS** | **33/33 项测试全部通过**，耗时约 120ms |
+| `npm test` | 执行全量单元测试（含 R-005 全场景协同/初学者模式、R-003 视频启动端到端与时间线单测） | **PASS** | **34/34 项测试全部通过**，耗时约 130ms |
 | `node scripts/smoke.mjs` | 静态服务白名单、目录符号链接防御与敏感路径阻断 | **PASS** | `/server.mjs`, `/package.json`, `private_notes.json`, 外部文件符号链接与内部目录符号链接全部 403 Forbidden；测试完成后无悬垂符号链接残留 |
 | `python scripts/test_package_security.py` | 验证零豁免扫描与 7 大安全注入/防假阳性场景 | **PASS** | **7/7 场景全量通过**（含场景 7 负向回归测试：破坏 smoke 必报错阻断，消除假阳性与交互挂起） |
 | `npm run benchmark` | 9 组跨 FPS 采样率时序状态机稳定性与严格一对一事件召回率 | **PASS** | 合成状态机闭环 MAE = 0.000，浅动作严格一对一实算：TP=18, FP=0, FN=0, Recall=100.0%, Precision=100.0%, F1=1.000 |
 | `python scripts/package.py` | 自动化前置扫描、全套自动化核验与 ZIP 打包 | **PASS** | 39 个文件零豁免全量逐字节无私钥头扫描，打包生成 `release/ai-fit-coach-demo-v0.2.1-handoff.zip` |
 | `python scripts/verify_package.py <zip>` | 独立解包审计、零豁免私钥扫描与 SHA-256 清单核对 | **PASS** | 39 文件哈希与 100% 逐文件私钥扫描完全通过 |
 
-### 单测明细（33 项全部绿色通过）
+### 单测明细（34 项全部绿色通过）
 1. `2D angle geometry, invalid and degenerate landmarks`
 2. `synthetic landmarks have measurable joint angles`
 3. `low visibility and missing landmarks do not produce fake measurements`
@@ -48,6 +48,7 @@
 31. `computeMaeStats strictly isolates real AI sessions from simulation data`
 32. `exportSessionsCSV uses deriveVerifiedAbsError ensuring screen MAE matches CSV row-by-row (P1-DATA-CSV)`
 33. **`R-003 regression: video timeline simulation spanning >3s proves cumulative infer counts are never wiped by 1-sec FPS resets` (模拟 3.5 秒跨越 3 个 FPS 周期，断言累计推理帧数持续递增且 >= trackedFrames，均值耗时严格准确)**
+34. **`R-003 integration: begin('video') path strictly verifies frame 0 single tracking count and error abort` (真机业务路径全量覆盖：首帧检出 1 人满足 inferred=1/tracked=1 杜绝双计数，首帧 0 人满足 inferred=1/tracked=0，首帧推理抛错严密中断且 video.play() 绝不调用，35 帧多帧模拟满足 inferred=35/tracked=17)**
 
 ---
 

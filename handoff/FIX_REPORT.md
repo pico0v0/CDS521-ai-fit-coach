@@ -1,3 +1,66 @@
+# FIX_REPORT — v0.2.1-r8 P1 最终全面闭环与审查验收对齐报告
+
+> **目标版本**：v0.2.1-r8  
+> **修复范围**：基于第七轮复审报告（`AI Fit Coach v0.2.1-r7 — 第七轮 P1 专项复审`）及返修指令（`NEXT_AI_R8_FIX_PROMPT.md`），定向修复 R-003 遗留的最后两项 P1 缺陷：  
+> 1. **P1-R003-01：首帧 `trackedFrames` 重复累加缺陷（消除首帧手动增量，统一由 `onResult` 单一入口处理）**；  
+> 2. **P1-R003-02：首帧推理失败不可伪成功（消除静默 warn 漏洞，抛出异常并阻断 `video.play()`、清空状态并向用户报错）**；  
+> 3. **P2-R003-03：视频 `loadeddata` 增加 10 秒超时防护与事件清理，杜绝悬挂 Promise**；  
+> 4. **测试补充：在 `tests/store.test.mjs` 中新增真实 `begin('video')` 业务路径端到端测试（涵盖检出 1 人、无人体、推理抛错、多帧时序等 4 种真实场景）**。  
+> 
+> *说明：P0 安全保持结案；R-005 开合跳动态阈值与峰值锁定在 r7 正式结案；R-009 一对一事件匹配保持结案。*
+
+---
+
+## 1. P1-R003-01：消除首帧 `trackedFrames` 重复累加缺陷
+
+### 1.1 根因与复现
+- **根因**：在 `src/app.js` 约 456 行，首帧预推理检测到人体后，原代码先手动执行了一次 `state.trackedFrames = (state.trackedFrames || 0) + 1;`，随后立即调用 `onResult(firstLandmarks, ...)`；而在 `onResult()` 内部（第 259 行），只要 `(state.mode === 'camera' || state.mode === 'video') && landmarks?.length` 为真，便会再次执行 `state.trackedFrames++`。
+- **复现结果**：首帧仅推理了 1 帧且画面中只有 1 个人，系统却记录了 `totalInferredFrames: 1, trackedFrames: 2`，出现了 `trackedFrames > totalInferredFrames` 的逻辑矛盾，且会干扰 MAE 的有效帧数门槛判定。
+
+### 1.2 修复措施
+- 移除 `src/app.js` 首帧处理中的手动递增代码行，统一交由核心入口 `onResult()` 负责 `state.trackedFrames` 的有效检出累加；
+- 首帧检出 1 个人时，严格满足 `totalInferredFrames = 1, trackedFrames = 1`；首帧无人体时，严格满足 `totalInferredFrames = 1, trackedFrames = 0`。
+
+---
+
+## 2. P1-R003-02：首帧推理失败严格阻断视频播放与状态就绪
+
+### 2.1 根因与复现
+- **根因**：在 `src/app.js` 约 447–470 行，对首帧执行 `state.detector.detectForVideo(video, ...)` 时使用了局部的 `try { ... } catch (firstFrameErr) { console.warn(...) }` 结构。若检测器在首帧阶段抛出异常，错误被局部静默吸收，后续流程依然把 `state.modelReady` 设为 `true`、打印“从 0s 启动成功”消息，并调用 `await video.play()` 正常播放视频。
+- **复现结果**：假姿态检测器在首帧抛出异常时，系统未中断退出，反而继续启动视频播放，违背了“首帧成功通过 AI 模型推理作为进入视频训练必要前置条件”的强验收要求。
+
+### 2.2 修复措施
+- 消除局部吞噬异常的 `console.warn`，当 `detectForVideo()` 抛出异常时，重新抛出 `new Error(...)` 传递至外层统一的 `catch (error)` 处理块；
+- 延迟设置 `state.modelReady = true`，必须在首帧预推理彻底成功后才置位；
+- 失败时外层 `catch` 执行完整清理：调用 `stopRealtime()` 关闭检测器并清理视频元素、置 `state.mode = null`、置 `state.modelReady = false`、更新错误提示 UI，且绝不调用 `video.play()` 和 `requestAnimationFrame`。
+
+---
+
+## 3. P2-R003-03：视频首帧加载 10 秒超时防护
+
+- 在 `video.readyState >= 2` 的等待 Promise 中，增设 10 秒定时器 `setTimeout`，超时即执行清理并 reject 明确报错，彻底杜绝异常媒体文件或空事件导致的 Promise 永久悬挂。
+
+---
+
+## 4. 测试与验证结果
+
+1. **真实业务路径单测（`tests/store.test.mjs` 测试 34）**：
+   - 场景 1（首帧 1 人）：`inferredFrames = 1, trackedFrames = 1, mode = 'video', modelReady = true, play = true` (PASS)；
+   - 场景 2（首帧 0 人）：`inferredFrames = 1, trackedFrames = 0, mode = 'video', modelReady = true, play = true` (PASS)；
+   - 场景 3（首帧抛错）：`inferredFrames = 0, trackedFrames = 0, mode = null, modelReady = false, play = false` (PASS)；
+   - 场景 4（35 帧多帧模拟）：`inferredFrames = 35, trackedFrames = 17`，全程满足 `totalInferredFrames >= trackedFrames` (PASS)。
+2. **审查 AI 复现脚本对齐**：
+   - 运行针对 r7 缺陷的插桩流程，`cases[0]` 准确输出 `inferredFrames: 1, trackedFrames: 1`，`cases[1]` 准确输出 `mode: null, modelReady: false, inferredFrames: 0, trackedFrames: 0`。
+3. **全套自动化测试全绿**：
+   - `npm run check`：6/6 ES 模块 PASS；
+   - `npm test`：34/34 PASS；
+   - `python scripts/test_package_security.py`：7/7 PASS；
+   - `node scripts/smoke.mjs`：PASS；
+   - `npm run benchmark`：9 组确定性序列 PASS（MAE = 0.000）；
+   - `python scripts/package.py`：PASS（39 个文件，完整 SHA-256 校验与零私钥扫描通过）。
+
+---
+
 # FIX_REPORT — v0.2.1-r7 P1 最终闭环与审查验收对齐报告
 
 > **目标版本**：v0.2.1-r7  

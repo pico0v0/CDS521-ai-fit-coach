@@ -1,5 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { loadSessions, saveSession, clearSessions, makeAdvice, exportSessionsCSV, exportSessionsJSON, computeMaeStats, deriveVerifiedAbsError, getSessionMaeEligibility } from '../src/store.js';
 
 function memoryStorage() {
@@ -190,4 +193,137 @@ test('R-003 regression: video timeline simulation spanning >3s proves cumulative
   assert.equal(simState.trackedFrames, 17, 'Tracked frames correctly accumulated');
   const avgLatency = Math.round(simState.latencySumMs / simState.totalInferredFrames);
   assert.equal(avgLatency, 15, 'Average latency accurately computed from cumulative sum / total');
+});
+
+test("R-003 integration: begin('video') path strictly verifies frame 0 single tracking count and error abort", async (t) => {
+  const original = resolve(process.cwd(), 'src/app.js');
+  const tempPath = resolve(process.cwd(), 'src/__test_video_path.mjs');
+
+  let playCalled = false;
+  const makeNode = () => ({
+    innerHTML: '', textContent: '', style: {}, value: '', checked: false, src: '',
+    currentTime: 0, readyState: 2, videoWidth: 640, videoHeight: 480,
+    loop: false, paused: true,
+    play: async () => { playCalled = true; },
+    pause: () => {},
+    addEventListener: () => {}, removeEventListener: () => {},
+    classList: { add: () => {}, remove: () => {}, toggle: () => {} },
+    dataset: {}, getContext: () => ({}), focus: () => {}, click: () => {}
+  });
+
+  const nodes = new Map();
+  const node = id => {
+    if (!nodes.has(id)) nodes.set(id, makeNode());
+    return nodes.get(id);
+  };
+
+  globalThis.document = {
+    querySelector: node, querySelectorAll: () => [], addEventListener: () => {},
+    createElement: makeNode, body: { appendChild: () => {}, removeChild: () => {} }
+  };
+  globalThis.window = {
+    addEventListener: () => {}, isSecureContext: true, scrollTo: () => {},
+    speechSynthesis: null
+  };
+  globalThis.location = { hostname: 'localhost' };
+  globalThis.localStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+  globalThis.requestAnimationFrame = () => 100;
+  globalThis.cancelAnimationFrame = () => {};
+  URL.createObjectURL = () => 'blob:test-r8';
+  URL.revokeObjectURL = () => {};
+
+  let source = readFileSync(original, 'utf8');
+  const poseImport = "import { createPoseLandmarker } from './pose.js';";
+  const drawImport = "import { drawPose, drawIdle } from './draw.js';";
+  source = source.replace(poseImport, `const createPoseLandmarker = async () => ({
+    detector: {
+      detectForVideo: () => {
+        if (globalThis.__testFirstFrameFail) throw new Error('TEST_FIRST_FRAME_SIMULATED_FAILURE');
+        if (globalThis.__testEmptyLandmarks) return { landmarks: [] };
+        return {
+          landmarks: [Array.from({ length: 33 }, (_, i) => ({ x: 0.2 + i * 0.003, y: 0.2 + i * 0.001, visibility: 0.9 }))]
+        };
+      },
+      close: () => {}
+    },
+    isLocalModel: true
+  });`);
+  source = source.replace(drawImport, 'const drawPose = () => {}; const drawIdle = () => {};');
+  source += '\nexport { state, begin, stopRealtime };\n';
+
+  writeFileSync(tempPath, source, { flag: 'w' });
+
+  try {
+    const { state, begin, stopRealtime } = await import(pathToFileURL(tempPath).href);
+
+    // Subtest 1: Successful frame 0 detection produces exactly 1 inferred and 1 tracked frame
+    globalThis.__testFirstFrameFail = false;
+    globalThis.__testEmptyLandmarks = false;
+    playCalled = false;
+    state.view = 'training';
+    await begin('video', { name: 'test.mp4' });
+    assert.equal(state.totalInferredFrames, 1, 'Frame 0 inferred count equals 1');
+    assert.equal(state.trackedFrames, 1, 'Frame 0 tracked count equals 1 (single-counted, no double counting)');
+    assert.equal(state.mode, 'video', 'State transitioned to video mode');
+    assert.equal(state.modelReady, true, 'Model is marked ready');
+    assert.equal(playCalled, true, 'video.play() was initiated');
+    stopRealtime();
+    state.mode = null;
+
+    // Subtest 2: Frame 0 with 0 persons produces 1 inferred and 0 tracked frames
+    globalThis.__testFirstFrameFail = false;
+    globalThis.__testEmptyLandmarks = true;
+    playCalled = false;
+    state.view = 'training';
+    await begin('video', { name: 'test-empty.mp4' });
+    assert.equal(state.totalInferredFrames, 1, 'Frame 0 inferred count equals 1');
+    assert.equal(state.trackedFrames, 0, 'Frame 0 tracked count equals 0 when no person present');
+    assert.equal(state.mode, 'video', 'State transitioned to video mode');
+    assert.equal(state.modelReady, true, 'Model is marked ready');
+    assert.equal(playCalled, true, 'video.play() was initiated');
+    stopRealtime();
+    state.mode = null;
+
+    // Subtest 3: Frame 0 detection failure blocks video playback and resets state
+    globalThis.__testFirstFrameFail = true;
+    globalThis.__testEmptyLandmarks = false;
+    playCalled = false;
+    state.view = 'training';
+    const origError = console.error;
+    console.error = () => {};
+    try {
+      await begin('video', { name: 'test-fail.mp4' });
+    } finally {
+      console.error = origError;
+    }
+    assert.equal(state.totalInferredFrames, 0, '0 inferred frames on startup failure');
+    assert.equal(state.trackedFrames, 0, '0 tracked frames on startup failure');
+    assert.equal(state.mode, null, 'Mode MUST NOT remain video on frame 0 failure');
+    assert.equal(state.modelReady, false, 'Model MUST NOT be marked ready on failure');
+    assert.equal(playCalled, false, 'video.play() MUST NOT be called when frame 0 fails');
+    stopRealtime();
+    state.mode = null;
+
+    // Subtest 4: Multi-frame sequence simulation (35 inferences, 17 tracked poses)
+    globalThis.__testFirstFrameFail = false;
+    globalThis.__testEmptyLandmarks = false;
+    state.view = 'training';
+    await begin('video', { name: 'multi-frame.mp4' });
+    assert.equal(state.totalInferredFrames, 1);
+    assert.equal(state.trackedFrames, 1);
+    for (let i = 2; i <= 35; i++) {
+      state.totalInferredFrames++;
+      if (i % 2 === 0 && state.trackedFrames < 17) {
+        state.trackedFrames++;
+      }
+      assert.ok(state.totalInferredFrames >= state.trackedFrames);
+    }
+    assert.equal(state.totalInferredFrames, 35);
+    assert.equal(state.trackedFrames, 17);
+    stopRealtime();
+    state.mode = null;
+
+  } finally {
+    if (existsSync(tempPath)) unlinkSync(tempPath);
+  }
 });

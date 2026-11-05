@@ -405,12 +405,18 @@ async function begin(mode, file = null) {
       // Wait for loadeddata / readyState >= 2 (HAVE_CURRENT_DATA) so frame 0 is decodeable (R-003)
       await new Promise((resolve, reject) => {
         if (video.readyState >= 2) return resolve();
-        const onLoaded = () => { cleanup(); resolve(); };
-        const onError = () => { cleanup(); reject(new Error('视频元数据或首帧解析失败，请检查文件格式')); };
+        let timer = null;
         const cleanup = () => {
+          clearTimeout(timer);
           video.removeEventListener('loadeddata', onLoaded);
           video.removeEventListener('error', onError);
         };
+        const onLoaded = () => { cleanup(); resolve(); };
+        const onError = () => { cleanup(); reject(new Error('视频元数据或首帧解析失败，请检查文件格式')); };
+        timer = setTimeout(() => {
+          cleanup();
+          reject(new Error('视频首帧加载超时，请检查视频文件是否有效'));
+        }, 10000);
         video.addEventListener('loadeddata', onLoaded, { once: true });
         video.addEventListener('error', onError, { once: true });
       });
@@ -441,33 +447,36 @@ async function begin(mode, file = null) {
       modelMessage('本地视频已就绪，正在加载姿态估计 AI 模型…');
       const { detector, isLocalModel } = await createPoseLandmarker();
       if (run !== state.activeRunId) { detector.close(); return; }
-      state.detector = detector; state.modelReady = true;
+      state.detector = detector;
 
       // Pre-analyze paused frame 0 so frame 0 is verified to pass through model inference
+      const t0 = performance.now();
+      let firstResult;
       try {
-        const t0 = performance.now();
-        const firstResult = state.detector.detectForVideo(video, performance.now());
-        const cost = performance.now() - t0;
-        state.latencyMs = Math.round(cost);
-        state.latencySumMs = (state.latencySumMs || 0) + cost;
-        state.totalInferredFrames = (state.totalInferredFrames || 0) + 1;
-        state.inferFramesWindow = (state.inferFramesWindow || 0) + 1;
-        const firstLandmarks = firstResult.landmarks?.[0] || null;
-        if (firstLandmarks?.length) state.trackedFrames = (state.trackedFrames || 0) + 1;
-        onResult(firstLandmarks, performance.now());
-        const canvas = document.querySelector('#poseCanvas');
-        if (canvas && video.videoWidth > 0) {
-          drawPose(canvas, firstLandmarks, {
-            width: video.videoWidth,
-            height: video.videoHeight,
-            highlightJoints: state.currentHighlightJoints,
-            angle: null,
-            depthProgress: 0
-          });
-        }
+        firstResult = state.detector.detectForVideo(video, performance.now());
       } catch (firstFrameErr) {
-        console.warn('Initial frame 0 inference note:', firstFrameErr);
+        throw new Error(`视频首帧 AI 姿态分析失败（${firstFrameErr?.message || firstFrameErr}），无法启动评测`);
       }
+      const cost = performance.now() - t0;
+      state.latencyMs = Math.round(cost);
+      state.latencySumMs = (state.latencySumMs || 0) + cost;
+      state.totalInferredFrames = (state.totalInferredFrames || 0) + 1;
+      state.inferFramesWindow = (state.inferFramesWindow || 0) + 1;
+      const firstLandmarks = firstResult?.landmarks?.[0] || null;
+      // onResult handles state.trackedFrames increment uniformly when landmarks are present
+      onResult(firstLandmarks, performance.now());
+      const canvas = document.querySelector('#poseCanvas');
+      if (canvas && video.videoWidth > 0) {
+        drawPose(canvas, firstLandmarks, {
+          width: video.videoWidth,
+          height: video.videoHeight,
+          highlightJoints: state.currentHighlightJoints,
+          angle: null,
+          depthProgress: 0
+        });
+      }
+
+      state.modelReady = true;
 
       state.startWall = Date.now(); state.startPerf = performance.now();
       refreshModeUI();

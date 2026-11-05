@@ -1,41 +1,40 @@
-# REVIEW_REQUEST — v0.2.1-r7 第七轮 P1 专项彻底闭环交接审查说明
+# REVIEW_REQUEST — v0.2.1-r8 第八轮 P1 专项彻底闭环交接审查说明
 
-**交付版本**：v0.2.1-r7  
+**交付版本**：v0.2.1-r8  
 **交付包**：`release/ai-fit-coach-demo-v0.2.1-handoff.zip` (39 个文件，完整哈希与逐文件零私钥扫描通过)  
-**本轮目标**：根据审查 AI 第六轮独立复审报告（`AI Fit Coach v0.2.1-r6 — 第六轮 P1 专项复审`），针对遗留的最后两项 P1 缺陷进行定向攻坚并彻底闭环：
-1. **R-005**：开合跳同步阈值动态适应难度配置（解决 beginner 115°/118° 达标动作被硬编码 125° 误拒问题）与双臂达峰瞬间下肢开合比锁死（解决 `early_leg_close` 提前收腿不同步问题）；
-2. **R-003**：会话累计推理计数器与 1 秒滑动窗口解耦（解决视频播放结束报出个位数采样的假低计数问题），真实现金流累计耗时除以累计帧数计算平均单帧时延，视频起播前对暂停态首帧（frame 0）执行真实预推理，并加固 seek 超时严格报错。
+**本轮目标**：根据审查 AI 第七轮独立复审报告（`AI Fit Coach v0.2.1-r7 — 第七轮 P1 专项复审`）及返修指令（`NEXT_AI_R8_FIX_PROMPT.md`），定向修复 R-003 遗留的最后两项 P1 缺陷，实现 P1 专项全量彻底闭环：
+1. **P1-R003-01**：消除首帧 `trackedFrames` 重复累加缺陷（统一交由 `onResult` 单一入口计数）；
+2. **P1-R003-02**：首帧预推理失败不可伪成功（消除静默 warn 漏洞，抛出异常阻断 `video.play()`、清空状态并向用户报错）；
+3. **P2-R003-03**：视频首帧加载增设 10 秒超时防护与事件清理，杜绝悬挂 Promise；
+4. **单测扩充**：在 `tests/store.test.mjs` 中新增测试 34，真实调用 `begin('video')` 业务路径（覆盖首帧 1 人、首帧 0 人、首帧抛错、35 帧多帧模拟等 4 大场景）。
 
 ---
 
-## 一、本轮重点加固与验收点（P1 专项彻底闭环）
+## 一、本轮重点加固与验收点（R-003 专项彻底闭环）
 
-1. **R-005 [P1/规则判定] 开合跳难度动态阈值与臂达峰瞬时开合比硬核锁死**：
-   - **源码位置**：`src/exercise.js:35–75, 210–245, 295–335, 365–420`、`tests/exercise.test.mjs:240–320`；
+1. **P1-R003-01 [P1/统计准确性] 消除首帧 `trackedFrames` 重复累加**：
+   - **源码位置**：`src/app.js:450–475`、`tests/store.test.mjs:200–280`；
    - **加固措施**：
-     - **动态同步阈值**：`overheadThreshold = Math.min(125, this.exercise.full - 5)`。在初学者难度（达标要求 115°）下，手臂上举同步判定线自动放宽至 110°（而非死板硬编码 125°），因此 118° 的初学者有效动作能够精准识别并计数；
-     - **臂达峰瞬时开合锁死**：记录 `this.legRatioAtArmPeak`（即手臂角度达到全周期峰值的时刻下肢的瞬时开合比）。在周期结算时，若 `this.legRatioAtArmPeak < 1.45`，即使双腿在手臂到达最高点之前曾经展开过，也严格判定为“双腿提前收拢、双臂延后到顶”的异步无效动作（`early_leg_close`），有效计数断言为 0；
-     - **全场景单测覆盖**：
-       - `normal: 3`（标准动作 3 次有效 + 1 浅动作）
-       - `beginner_118: 3`（初学者 118° 动作 3 次有效 + 1 浅动作）
-       - `early_leg_close: 0`（腿提前收回，臂到顶才合：有效计数为 0）
-       - `legs_out_of_sync: 0`（提前开合：有效计数为 0）
-       - `hips_move_ankles_static: 0`（双脚不动仅收髋：有效计数为 0）
-       - `closed: 0`、`wide: 0`、`occluded: 0` 全部断言为 0。
+     - 移除首帧检测成功后手动的 `if (firstLandmarks?.length) state.trackedFrames = (state.trackedFrames || 0) + 1;`；
+     - 统一交由 `onResult(firstLandmarks, performance.now())` 唯一入口处理人体有效姿态检出与计数；
+     - **验收指标**：首帧检出 1 个人体时，严格满足 `totalInferredFrames = 1, trackedFrames = 1`；首帧无人体（空 landmarks）时，严格满足 `totalInferredFrames = 1, trackedFrames = 0`，彻底闭环“推理 1 帧、有效跟踪 2 帧”的反例。
 
-2. **R-003 [P1/视频评测] 会话累计推理帧数解耦、真实单帧平均耗时与首帧真实预推理**：
-   - **源码位置**：`src/app.js:390–460, 530–555`、`tests/store.test.mjs:300–330`；
+2. **P1-R003-02 [P1/启动屏障] 首帧预推理失败严格阻断视频播放与状态就绪**：
+   - **源码位置**：`src/app.js:440–495`、`tests/store.test.mjs:240–265`；
    - **加固措施**：
-     - **彻底分离计数器**：新增 `state.totalInferredFrames` 作为会话全局累计计数器（在整个视频生命周期内只增不减、绝不在滑动窗口中清零）；原 `state.inferFramesWindow` 仅用于每 1000ms 刷新界面 FPS 显示，彻底解决视频播放结束提示时误用重置后残存个位数帧的问题；
-     - **真实现金流平均单帧耗时**：累加 `state.latencySumMs += (t1 - t0)`，结束时以 `Math.round(state.latencySumMs / state.totalInferredFrames)` 准确计算全生命周期平均单帧耗时；
-     - **首帧物理预推理保证**：在 `video.readyState >= 2` 就绪且定位到 `currentTime = 0` 后，在调用 `video.play()` 前，主动调用一次 `await state.pose.send({ image: video })`，确保暂停态下的首帧（frame 0）真正被 MediaPipe 深度分析并记录入库；
-     - **先挂帧循环后播放**：在 `video.play()` 之前即刻调度 `state.frame = requestAnimationFrame(renderFrame)`，避免异步播放延迟导致首段帧丢失；
-     - **Seek 严格异常处理**：废除无超时的静默 resolve，若定位超时严格 reject 并中断运行；
-     - **单测覆盖**：`tests/store.test.mjs` 测试 33 模拟超过 3 秒视频时间线，在多次触发 1 秒滑动窗口重置下，断言累计 `inferredFrames` 永不回滚且真实等于总推理帧数。
+     - 移除首帧推理内部吞掉异常并仅输出 `console.warn` 的局部 catch 块；
+     - 若 `detectForVideo()` 在首帧阶段抛出异常，立即抛出明确错误至外层 `catch (error)`；
+     - `state.modelReady = true` 仅在首帧预推理成功后才置位；
+     - 失败时外层 `catch` 执行完整资源清理与回退：调用 `stopRealtime()` 关闭检测器并清理视频元素、置 `state.mode = null`、置 `state.modelReady = false`、更新错误提示 UI，且绝不调用 `video.play()` 和 `requestAnimationFrame`。
 
-3. **全部既往验收项保持绿灯**：
-   - P0 安全：符号链接拦截、路径白名单校验、零私钥安全测试（7/7 PASS）持续稳定结案；
-   - R-009：浅动作一对一事件级真值匹配（TP/FP/FN/Precision/Recall/F1）持续稳定结案。
+3. **P2-R003-03 [P2/生命周期] 视频首帧加载 10 秒超时防护**：
+   - **源码位置**：`src/app.js:405–420`；
+   - **加固措施**：在视频首帧 `loadeddata` / `readyState >= 2` 的等待 Promise 中引入 10 秒定时器 `setTimeout`，超时即清理事件并 reject 报错，防止异常文件导致 Promise 永久悬挂。
+
+4. **全部既往结案项持续稳定保持通过**：
+   - **P0 安全**：静态服务白名单与目录符号链接防御、全量无豁免私钥打包扫描（7/7 PASS）持续稳定结案；
+   - **R-005**：开合跳初学者动态达标阈值（115°/118° 达标）与双臂达峰瞬间下肢开合比锁死（`early_leg_close` 有效计数严格为 0）在第七轮已正式结案通过；
+   - **R-009**：1-to-1 周期事件级真值匹配（TP/FP/FN/Precision/Recall/F1）及重复告警注入测试持续保持结案通过。
 
 ---
 
@@ -43,7 +42,7 @@
 
 ```bash
 npm run check                                                         # 6 个核心 ES 模块语法检查 (PASS)
-npm test                                                              # 33/33 项全量单测 (PASS)
+npm test                                                              # 34/34 项全量单测 (PASS)
 python scripts/test_package_security.py                               # 7 项安全注入与负向防假阳性自动化回归 (PASS)
 node scripts/smoke.mjs                                                # 包含目录符号链接与非客户端路径 403 拦截的冒烟测试 (PASS)
 npm run benchmark                                                     # 9 组跨 FPS 动作基准测试与严格 1-to-1 事件匹配 (PASS)
@@ -56,35 +55,39 @@ python scripts/verify_package.py release/ai-fit-coach-demo-v0.2.1-handoff.zip # 
 ## 🤖 供直接复制发给复审 AI 的提示词（Prompt for Reviewer AI）
 
 ```markdown
-请你扮演资深代码安全与计算机视觉审查专家，对本次提交的 AI Fit Coach v0.2.1-r7 进行第七轮 P1 缺陷专项复审。
+请你扮演资深代码安全与计算机视觉审查专家，对本次提交的 AI Fit Coach v0.2.1-r8 进行第八轮 P1 缺陷专项复审。
 
 【本次交付背景与任务】
-第六轮独立复审报告（AI Fit Coach v0.2.1-r6 — 第六轮 P1 专项复审）确认：P0 安全保持结案，R-009 浅动作 1-to-1 匹配与重复告警注入测试完全结案。
-本轮开发者针对第六轮报告中指出的最后两项 P1 缺陷（R-005 初学者阈值冲突与提前收腿反例、R-003 视频采样统计准确性与首帧推理完整性）进行了彻底的代码定向修复与体系化单测扩充：
+第七轮独立复审报告（AI Fit Coach v0.2.1-r7 — 第七轮 P1 专项复审）确认：P0 安全保持结案，R-005 开合跳动态阈值与协同判定正式结案，R-009 浅动作 1-to-1 匹配保持结案。
+本轮开发者严格根据第七轮报告中的返修指令（NEXT_AI_R8_FIX_PROMPT.md），仅针对遗留的 R-003 两项具体缺陷进行定向攻坚，未改动任何已结案模块：
 
-1. R-005 开合跳初学者动态达标阈值与双臂达峰瞬间下肢开合比锁死：
-   - 源码：`src/exercise.js`；
-   - 动态阈值：overheadThreshold 动态取 Math.min(125, this.exercise.full - 5)，在 beginner 难度（达标要求 115°）下自适应为 110°，彻底解决 118°（>115°）初学者达标动作被硬编码 125° 误拒问题；
-   - 瞬时开合比门控：引入 this.legRatioAtArmPeak 记录手臂上举达到最大角度瞬间的下肢开合比。在周期结算时强制断言 this.legRatioAtArmPeak >= 1.45，彻底拦截双腿提前收回、双臂随后上举不同步的 early_leg_close 场景，将其有效计数彻底清零；
-   - 单测覆盖：`tests/exercise.test.mjs` 新增 beginner_118（3 次有效计数）与 early_leg_close（0 次有效计数）测试用例，33 项单元测试全绿；
-   - 运行第六轮审查 AI 的 `R6_INDEPENDENT_REPRO.mjs` 中的全部 8 项姿态场景验证 100% 满足预期。
+1. P1-R003-01 首帧 trackedFrames 重复累加缺陷消除：
+   - 源码：`src/app.js` 约 450–475 行；
+   - 移除首帧检测成功后手动的 trackedFrames++，统一交由 onResult 唯一入口进行判定与累加；
+   - 首帧检出 1 个人体时，严格满足 totalInferredFrames = 1, trackedFrames = 1；首帧无人体时，严格满足 totalInferredFrames = 1, trackedFrames = 0，彻底闭环“推理 1 帧、有效跟踪 2 帧”的反例。
 
-2. R-003 视频采样累计计数器解耦、真实单帧平均耗时与首帧物理预推理：
-   - 源码：`src/app.js`；
-   - 计数器解耦：引入 state.totalInferredFrames 严格用于全会话累计推理计数（永不重置）；原有 state.inferFramesWindow 仅用于 1 秒滑动窗口的 UI FPS 刷新，彻底杜绝视频播完时误报“采样推理 1 帧”的假低计数问题；
-   - 真实平均耗时：引入 state.latencySumMs，在视频结束时以 Math.round(state.latencySumMs / state.totalInferredFrames) 输出全会话单帧推理平均耗时；
-   - 首帧真实推理：在视频就绪（readyState >= 2）且确认 currentTime = 0 后，在调用 video.play() 前，对暂停状态的首帧先显式调用一次 await state.pose.send({ image: video })，确保首帧物理分析到位；
-   - 帧循环与 Seek 加固：在 video.play() 前调度 requestAnimationFrame，seek 操作加入超时 reject 机制杜绝静默失败；
-   - 审查脚本审计：运行 `R6_INDEPENDENT_REPRO.mjs` 静态正则审计，6 项 appSourceFindings 检查全部为 false（无任何违规源码模式）。
+2. P1-R003-02 首帧推理失败不可伪成功：
+   - 源码：`src/app.js` 约 440–495 行；
+   - 消除原先吞掉首帧推理异常并仅输出 console.warn 的静默 catch 块；
+   - 若 detectForVideo() 抛出异常，立即抛出错误并由外层 catch 捕获处理：执行 stopRealtime() 释放资源、置 state.mode = null、置 state.modelReady = false、向用户展示错误提示，且绝对不调用 video.play() 与 requestAnimationFrame；
+   - state.modelReady = true 仅在首帧预推理成功后才置位。
 
-3. 既往结案项持续稳定：
-   - P0 安全：静态服务白名单与目录符号链接拦截保持稳固，打包零私钥扫描通过；
-   - R-009：1-to-1 周期事件级匹配（TP/FP/FN/Precision/Recall/F1）及重复告警注入测试持续保持绿灯。
+3. P2-R003-03 视频首帧 loadeddata 等待增设 10 秒超时防护与清理，杜绝悬挂 Promise。
+
+4. 真实 begin('video') 业务路径端到端测试覆盖：
+   - 在 `tests/store.test.mjs` 中新增测试 34，引入 mock DOM 与 mock detector，真实调用 begin('video') 业务路径，全量覆盖：
+     - 场景 1（首帧 1 人）：inferredFrames = 1, trackedFrames = 1, mode = 'video', modelReady = true, play = true；
+     - 场景 2（首帧 0 人）：inferredFrames = 1, trackedFrames = 0, mode = 'video', modelReady = true, play = true；
+     - 场景 3（首帧抛错）：inferredFrames = 0, trackedFrames = 0, mode = null, modelReady = false, play = false；
+     - 场景 4（35 帧多帧模拟）：inferredFrames = 35, trackedFrames = 17，全程保持 totalInferredFrames >= trackedFrames。
+   - 34/34 项单元测试全部通过。
+
+5. 审查复现脚本对齐：
+   - 运行针对 r7 缺陷的插桩流程，cases[0] 准确输出 inferredFrames: 1, trackedFrames: 1，cases[1] 准确输出 mode: null, modelReady: false, inferredFrames: 0, trackedFrames: 0。
 
 【请重点审查】
-1. 运行 `tests/exercise.test.mjs` 或 `R6_INDEPENDENT_REPRO.mjs`，验证 beginner_118 有效计数为 3，early_leg_close 有效计数为 0；
-2. 检查 `src/app.js` 与 `tests/store.test.mjs`，验证 totalInferredFrames 与 inferFramesWindow 的解耦设计，以及首帧预推理和单帧平均时延计算；
-3. 执行全套自动化验收指令：
+1. 检查 `src/app.js` 与 `tests/store.test.mjs`，验证首帧 trackedFrames 单一入口计数逻辑，以及首帧抛错时阻断 video.play() 并重置 mode 为 null 的控制流；
+2. 执行全套自动化验收指令：
    npm run check
    npm test
    python scripts/test_package_security.py
@@ -92,7 +95,7 @@ python scripts/verify_package.py release/ai-fit-coach-demo-v0.2.1-handoff.zip # 
    npm run benchmark
    python scripts/package.py
    python scripts/verify_package.py release/ai-fit-coach-demo-v0.2.1-handoff.zip
-   确认全部通过且无任何警告。
+   确认全部通过且无任何警告，ZIP 包 39 个文件哈希与零私钥扫描全量绿灯。
 
-请给出本次 P1 专项闭环的复审结论。
+请给出本次 P1 专项闭环的最终复审决议。
 ```
