@@ -46,7 +46,7 @@ export function makeAdvice(record, goal, fatigue) {
 }
 
 export function exportSessionsCSV(sessions) {
-  const headers = ['ID', '训练时间', '动作名称', '动作代码', '运行模式', '有效次数', '未达幅度次数', '躯干前倾次数', '大臂借力次数', '双臂不对称次数', '训练时长(秒)', '训练目标', '主观疲劳'];
+  const headers = ['ID', '训练时间', '动作名称', '动作代码', '运行模式', '系统有效次数', '未达幅度次数', '人工对照次数', '绝对误差', '躯干前倾次数', '大臂借力次数', '双臂不对称次数', '训练时长(秒)', '训练目标', '主观疲劳'];
   const rows = (sessions || []).map(s => [
     s.id,
     s.startedAt,
@@ -55,6 +55,8 @@ export function exportSessionsCSV(sessions) {
     s.mode === 'demo' ? '模拟演示' : (s.mode === 'video' ? '本地视频AI' : '真实摄像头'),
     s.count,
     s.partialCount || 0,
+    Number.isFinite(s.manualCount) ? s.manualCount : '',
+    Number.isFinite(s.absError) ? s.absError : '',
     s.faultCounts?.trunk_lean || 0,
     s.faultCounts?.arm_swing || 0,
     s.faultCounts?.arm_asymmetry || 0,
