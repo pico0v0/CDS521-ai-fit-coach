@@ -22,22 +22,47 @@ export function angleDegrees(a, b, c) {
   return Math.acos(cos) * 180 / Math.PI;
 }
 
-/** MediaPipe 33-landmark index convention. Returns null for low-visibility sides. */
-export function extractJointAngle(landmarks, exerciseId, visibilityThreshold = 0.6) {
+/** MediaPipe 33-landmark index convention. Supports side hysteresis & preferred side. */
+export function extractJointAngle(landmarks, exerciseId, options = 0.6) {
   if (!landmarks || landmarks.length < 33) return null;
-  const sides = exerciseId === 'curl' ? [[11, 13, 15], [12, 14, 16]] : [[23, 25, 27], [24, 26, 28]];
-  let best = null;
-  for (const ids of sides) {
+  const visibilityThreshold = typeof options === 'number' ? options : (options.visibilityThreshold ?? 0.6);
+  const preferredSide = typeof options === 'object' ? options.preferredSide : null;
+  const hysteresis = typeof options === 'object' ? (options.hysteresis ?? 0.12) : 0.12;
+
+  const sideConfigs = exerciseId === 'curl'
+    ? [{ ids: [11, 13, 15], side: '左侧' }, { ids: [12, 14, 16], side: '右侧' }]
+    : [{ ids: [23, 25, 27], side: '左侧' }, { ids: [24, 26, 28], side: '右侧' }];
+
+  let candidates = [];
+  for (const { ids, side } of sideConfigs) {
     const pts = ids.map(i => landmarks[i]);
     if (pts.some(p => !p || !Number.isFinite(p.x) || !Number.isFinite(p.y) ||
       (p.visibility ?? 1) < visibilityThreshold)) continue;
     const angle = angleDegrees(...pts);
     const score = Math.min(...pts.map(p => p.visibility ?? 1));
-    if (angle !== null && (!best || score > best.confidence)) {
-      best = { angle, confidence: score, side: ids[0] % 2 ? '左侧' : '右侧' };
+    if (angle !== null) {
+      candidates.push({ angle, confidence: score, side, ids });
     }
   }
-  return best;
+
+  if (!candidates.length) return null;
+  if (candidates.length === 1) return candidates[0];
+
+  // If a side was previously preferred, require other side to exceed hysteresis threshold to switch.
+  if (preferredSide) {
+    const current = candidates.find(c => c.side === preferredSide);
+    const other = candidates.find(c => c.side !== preferredSide);
+    if (current && other) {
+      if (other.confidence > current.confidence + hysteresis) {
+        return other;
+      }
+      return current;
+    }
+    if (current) return current;
+  }
+
+  // Default: select the one with highest minimum landmark confidence
+  return candidates.sort((a, b) => b.confidence - a.confidence)[0];
 }
 
 const MIN_REP_MS = 650;
@@ -61,8 +86,10 @@ export class ExerciseAnalyzer {
     this.visible = false;
     this.samples = 0;
     this.lastEvent = null;
+    this.activeSide = null;
+    this.depthProgress = 0;
   }
-  update({ angle, visible = true, timestamp }) {
+  update({ angle, visible = true, timestamp, side = null }) {
     if (!Number.isFinite(timestamp)) throw new Error('timestamp must be finite milliseconds');
     if (timestamp <= this.lastUpdateAt) return this.snapshot();
     const sinceLast = this.lastUpdateAt < 0 ? 0 : timestamp - this.lastUpdateAt;
@@ -75,9 +102,13 @@ export class ExerciseAnalyzer {
       // A lost pose must not complete a rep; reacquire while extended.
       this.visible = false; this.ready = false; this.inRep = false; this.lastSmooth = null;
       this.phase = '请调整机位'; this.lastAngle = null; this.lastEvent = null;
+      this.depthProgress = 0;
       return this.snapshot();
     }
     this.visible = true;
+    if (!this.inRep && side) {
+      this.activeSide = side;
+    }
     this.lastSmooth = this.lastSmooth === null || sinceLast > 1000
       ? angle : this.lastSmooth * 0.55 + angle * 0.45;
     const measured = this.lastSmooth;
@@ -85,6 +116,9 @@ export class ExerciseAnalyzer {
     this.samples++;
     this.lastEvent = null;
     const { extended, started, full } = this.exercise;
+
+    const progressRatio = (extended - measured) / Math.max(1, (extended - full));
+    this.depthProgress = Math.max(0, Math.min(120, Math.round(progressRatio * 100)));
 
     if (!this.ready && !this.inRep && measured >= extended) {
       this.ready = true;
@@ -95,6 +129,7 @@ export class ExerciseAnalyzer {
       this.repStartedAt = timestamp;
       this.minAngle = measured;
       this.phase = '动作进行中';
+      if (side) this.activeSide = side;
     } else if (this.inRep) {
       this.minAngle = Math.min(this.minAngle, measured);
       this.phase = this.minAngle <= full ? '完成幅度 · 返回起点' : '动作进行中';
@@ -120,6 +155,7 @@ export class ExerciseAnalyzer {
   }
   snapshot() {
     return { count: this.count, partialCount: this.partialCount, phase: this.phase,
-      angle: this.lastAngle, visible: this.visible, event: this.lastEvent, samples: this.samples };
+      angle: this.lastAngle, visible: this.visible, event: this.lastEvent, samples: this.samples,
+      side: this.activeSide, progress: this.depthProgress, minAngle: this.inRep ? Math.round(this.minAngle) : null };
   }
 }

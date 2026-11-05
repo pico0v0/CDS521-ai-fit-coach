@@ -12,6 +12,11 @@ import json
 import zipfile
 import sys
 
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
 BASE = Path(__file__).resolve().parent.parent
 PREFIX = 'ai-fit-coach-demo'
 EXCLUDE_PARTS = {'.git', 'node_modules', 'release', '__pycache__', '.cache', '.venv', 'venv'}
@@ -27,7 +32,7 @@ REQUIRED = [
 ]
 
 def run(cmd):
-    p=subprocess.run(cmd, cwd=BASE, capture_output=True, text=True)
+    p=subprocess.run(cmd, cwd=BASE, capture_output=True, text=True, shell=True, encoding='utf-8', errors='replace')
     output=f'$ {" ".join(cmd)}\nExit code: {p.returncode}\n{p.stdout}\n{p.stderr}\n'
     print(output[:5000])
     if p.returncode:

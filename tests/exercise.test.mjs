@@ -78,3 +78,44 @@ test('simulated angle exercises have planned shallow cycles', () => {
     assert.ok(shallow > full);
   }
 });
+
+test('side hysteresis prevents flickering when confidences are close', () => {
+  const pose = simulatePose(0, 'squat');
+  // Left leg: 23, 25, 27. Right leg: 24, 26, 28.
+  // Set left confidence to 0.85, right confidence to 0.88 (diff < 0.12 default hysteresis)
+  for (const i of [23, 25, 27]) pose[i].visibility = 0.85;
+  for (const i of [24, 26, 28]) pose[i].visibility = 0.88;
+
+  // When left side is already preferred, small advantage of right (0.03) must not switch side
+  const res1 = extractJointAngle(pose, 'squat', { preferredSide: '左侧', hysteresis: 0.12 });
+  assert.equal(res1.side, '左侧');
+
+  // When right advantage exceeds hysteresis (e.g. 0.88 vs 0.70, diff 0.18 > 0.12), switch side
+  for (const i of [23, 25, 27]) pose[i].visibility = 0.70;
+  const res2 = extractJointAngle(pose, 'squat', { preferredSide: '左侧', hysteresis: 0.12 });
+  assert.equal(res2.side, '右侧');
+});
+
+test('analyzer tracks depth progress and retains active side during rep', () => {
+  const a = new ExerciseAnalyzer('squat');
+  // Standing pose (170°), extended=155 -> ready
+  a.update({ angle: 170, visible: true, timestamp: 100, side: '左侧' });
+  const s1 = a.update({ angle: 170, visible: true, timestamp: 200, side: '左侧' });
+  assert.equal(s1.progress, 0);
+  assert.equal(s1.side, '左侧');
+  assert.equal(a.ready, true);
+
+  // Descending (smoothly down to 130° over samples)
+  a.update({ angle: 130, visible: true, timestamp: 300, side: '左侧' });
+  a.update({ angle: 130, visible: true, timestamp: 400, side: '左侧' });
+  const s2 = a.update({ angle: 130, visible: true, timestamp: 500, side: '左侧' });
+  assert.ok(s2.progress > 0);
+  assert.equal(a.inRep, true);
+
+  // During rep, if noisy frame detects '右侧', activeSide stays locked on '左侧'
+  a.update({ angle: 105, visible: true, timestamp: 600, side: '右侧' });
+  a.update({ angle: 105, visible: true, timestamp: 700, side: '右侧' });
+  const s3 = a.update({ angle: 105, visible: true, timestamp: 800, side: '右侧' });
+  assert.equal(s3.side, '左侧');
+  assert.ok(s3.progress >= 95);
+});

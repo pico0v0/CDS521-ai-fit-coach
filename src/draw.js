@@ -5,30 +5,66 @@ const EDGES = [
 ];
 export function drawPose(canvas, landmarks, options = {}) {
   if (!canvas) return;
-  const { width = 960, height = 540, active = true, label = '' } = options;
+  const { width = 960, height = 540, active = true, label = '', highlightJoints = null } = options;
   if (canvas.width !== width) canvas.width = width;
   if (canvas.height !== height) canvas.height = height;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, width, height);
   if (!landmarks?.length) return;
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  ctx.strokeStyle = active ? '#c6ff72' : '#94a3b8';
-  ctx.lineWidth = Math.max(3, width / 240);
-  for (const [a,b] of EDGES) {
+
+  const highlightSet = new Set(highlightJoints || []);
+
+  // 1. Draw base skeleton edges
+  for (const [a, b] of EDGES) {
     const p = landmarks[a], q = landmarks[b];
-    if (!p || !q || (p.visibility ?? 1) < 0.4 || (q.visibility ?? 1) < 0.4) continue;
-    ctx.beginPath(); ctx.moveTo(p.x * width, p.y * height);
-    ctx.lineTo(q.x * width, q.y * height); ctx.stroke();
+    if (!p || !q || (p.visibility ?? 1) < 0.35 || (q.visibility ?? 1) < 0.35) continue;
+    const isTargetEdge = highlightSet.has(a) && highlightSet.has(b);
+    ctx.beginPath();
+    ctx.moveTo(p.x * width, p.y * height);
+    ctx.lineTo(q.x * width, q.y * height);
+
+    if (isTargetEdge) {
+      // Glow effect for target exercise limb
+      ctx.strokeStyle = '#fef08a';
+      ctx.lineWidth = Math.max(5, width / 150);
+      ctx.stroke();
+    } else {
+      ctx.strokeStyle = active ? 'rgba(198, 255, 114, 0.45)' : '#94a3b840';
+      ctx.lineWidth = Math.max(2.5, width / 260);
+      ctx.stroke();
+    }
   }
+
+  // 2. Draw normal landmarks
   for (let i = 11; i <= 30; i++) {
-    const p = landmarks[i]; if (!p || (p.visibility ?? 1) < 0.4) continue;
-    ctx.beginPath(); ctx.arc(p.x * width, p.y * height, Math.max(3.6, width / 180), 0, Math.PI * 2);
-    ctx.fillStyle = '#f8fff1'; ctx.fill();
-    ctx.strokeStyle = '#729729'; ctx.lineWidth = 1.5; ctx.stroke();
+    const p = landmarks[i];
+    if (!p || (p.visibility ?? 1) < 0.35) continue;
+    const isTarget = highlightSet.has(i);
+    const radius = isTarget ? Math.max(5.5, width / 140) : Math.max(3.2, width / 200);
+
+    ctx.beginPath();
+    ctx.arc(p.x * width, p.y * height, radius, 0, Math.PI * 2);
+    ctx.fillStyle = isTarget ? '#fef08a' : '#f8fff1';
+    ctx.fill();
+    ctx.strokeStyle = isTarget ? '#ca8a04' : '#527c24';
+    ctx.lineWidth = isTarget ? 2.5 : 1.5;
+    ctx.stroke();
+
+    if (isTarget) {
+      // Pulsing outer ring on target joints
+      ctx.beginPath();
+      ctx.arc(p.x * width, p.y * height, radius + 4, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(254, 240, 138, 0.4)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
   }
+
   if (label) {
     ctx.font = `600 ${Math.max(13, width / 55)}px sans-serif`;
-    ctx.fillStyle = '#dcfce7'; ctx.fillText(label, 26, 40);
+    ctx.fillStyle = '#dcfce7';
+    ctx.fillText(label, 26, 40);
   }
 }
 export function drawIdle(canvas) {

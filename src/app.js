@@ -10,7 +10,8 @@ const state = {
   voice: false, mode: null, running: false, paused: false, analyzer: new ExerciseAnalyzer('squat'),
   stream: null, detector: null, frame: 0, lastFrame: 0, lastVideoTime: -1,
   startWall: 0, startPerf: 0, pauseAt: 0, pauseDuration: 0, warningLogs: [],
-  lastSession: null, toast: '', activeRunId: 0, modelReady: false, trackedFrames: 0
+  lastSession: null, toast: '', activeRunId: 0, modelReady: false, trackedFrames: 0,
+  fps: 0, latencyMs: 0, fpsFrames: 0, fpsLastTime: 0, currentHighlightJoints: null
 };
 const icons = {
   home:'⌂', training:'◉', reports:'▥', about:'◇', camera:'▣', close:'×',
@@ -79,7 +80,7 @@ function trainingPage() {
     <div class="page-heading"><div><div class="eyebrow">LIVE SESSION / MOVEMENT ANALYSIS</div><h2>实时训练 <span>WORKOUT STUDIO</span></h2><p>姿态模型识别关键点，独立规则判断动作阶段；角度阈值仅供课程演示。</p></div><span class="page-tag">● v0.1 · BETA</span></div>
     <div class="training-layout"><section class="camera-column">
       <div class="module-heading"><div><span class="section-index">01</span><strong>视觉训练区域</strong></div><span id="modePill" class="mode-pill">● 等待开始</span></div>
-      <div class="camera-stage" id="cameraStage"><video id="liveVideo" autoplay muted playsinline></video><canvas id="poseCanvas" width="960" height="540" aria-label="人体骨架叠加画布"></canvas><div class="scan-corner tl"></div><div class="scan-corner tr"></div><div class="scan-corner bl"></div><div class="scan-corner br"></div><div class="stage-top"><span class="stage-tag">POSE TRACKING / ${ex.english}</span><span id="stageIndicator">STANDBY</span></div><div class="stage-bottom" id="stageHint">请使用下方按钮开启摄像头或模拟演示</div><div class="sim-label" id="simLabel">模拟数据 · 非真实 AI 识别</div></div>
+      <div class="camera-stage" id="cameraStage"><video id="liveVideo" autoplay muted playsinline></video><canvas id="poseCanvas" width="960" height="540" aria-label="人体骨架叠加画布"></canvas><div class="scan-corner tl"></div><div class="scan-corner tr"></div><div class="scan-corner bl"></div><div class="scan-corner br"></div><div class="stage-top"><span class="stage-tag">POSE TRACKING / ${ex.english}</span><span id="perfIndicator" class="perf-tag">-- FPS</span><span id="stageIndicator">STANDBY</span></div><div class="stage-bottom" id="stageHint">请使用下方按钮开启摄像头或模拟演示（空格键暂停/继续）</div><div class="sim-label" id="simLabel">模拟数据 · 非真实 AI 识别</div></div>
       <div class="camera-actions"><button class="btn btn-primary" data-action="start-camera" id="startCamera">◉ &nbsp; 启动 AI 摄像头</button><button class="btn btn-outline" data-action="start-demo" id="startDemo">▷ &nbsp; 模拟演示</button><button class="btn btn-muted" data-action="pause" id="pauseBtn" disabled>暂停</button><button class="btn btn-danger" data-action="end" id="endBtn" disabled>结束训练</button></div>
       <div id="modelMessage" class="model-message" role="status">真实模式首次启动将从 Google / jsDelivr 加载模型与运行库，需要联网；模拟模式不使用 AI。</div>
       <div class="instruction"><span class="info-dot">i</span><div><strong>机位建议</strong><p id="cameraGuidance">${ex.guidance}</p></div></div>
@@ -88,6 +89,7 @@ function trainingPage() {
       <div class="settings-card"><div class="input-label">选择动作 <span>EXERCISE</span></div><div class="exercise-switch"><button type="button" data-exercise="squat" class="exercise-btn ${state.exercise==='squat'?'selected':''}">深蹲 <small>SQUAT</small></button><button type="button" data-exercise="curl" class="exercise-btn ${state.exercise==='curl'?'selected':''}">弯举 <small>CURL</small></button></div><div class="select-grid"><label>训练目标<select id="goalInput"><option value="habit" ${state.goal==='habit'?'selected':''}>培养习惯</option><option value="strength" ${state.goal==='strength'?'selected':''}>力量训练</option><option value="endurance" ${state.goal==='endurance'?'selected':''}>提高耐力</option></select></label><label>目前疲劳<select id="fatigueInput"><option value="normal" ${state.fatigue==='normal'?'selected':''}>一般</option><option value="low" ${state.fatigue==='low'?'selected':''}>较低</option><option value="high" ${state.fatigue==='high'?'selected':''}>较高</option></select></label></div><div class="minor-options"><label class="voice-option"><input type="checkbox" id="voiceToggle" ${state.voice?'checked':''}> <span>语音反馈</span></label><label>摄像头 <select id="facingSelect"><option value="user" ${state.facing==='user'?'selected':''}>前置</option><option value="environment" ${state.facing==='environment'?'selected':''}>后置</option></select></label></div></div>
       <div class="stat-large"><div><span class="stat-label">有效次数</span><div class="big-number" id="repsCount">00</div></div><div class="stat-side"><div><span>进行时间</span><strong id="clock">00:00</strong></div><div><span>未达演示幅度</span><strong id="partialCount">00</strong></div></div></div>
       <div class="stat-row"><div class="stat-small"><span>关节角度 <small>2D EST.</small></span><strong id="angleStat">-- <small>°</small></strong></div><div class="stat-small"><span>动作状态</span><strong id="phaseStat" class="phase-text">等待站稳</strong></div></div>
+      <div class="depth-card"><div class="depth-head"><span>动作深度完成度</span><strong id="depthPercent">0%</strong></div><div class="depth-meter-track"><div class="depth-meter-bar" id="depthBar"></div></div><div class="depth-labels"><span>起始准备 (${ex.extended}°)</span><span id="activeSideBadge" class="side-badge">待识别肢体</span><span>达标幅度 (${ex.full}°)</span></div></div>
       <div class="feedback-card"><div class="feedback-head"><span class="feedback-indicator"></span><strong>教练反馈</strong><span>LIVE FEEDBACK</span></div><p id="feedbackText" aria-live="polite">准备就绪。请先选择摄像头或模拟演示。</p><div class="feedback-bottom">基于动作规则，不用于医学诊断</div></div>
     </aside></div>
     <section class="notes-line"><div>✧ <strong>真实 AI 模式</strong>：姿态识别由 MediaPipe 完成</div><div>◇ <strong>模拟演示</strong>：合成骨架测试算法，不代表真实模型表现</div></section>
@@ -128,6 +130,8 @@ function refreshModeUI() {
   document.querySelectorAll('[data-exercise]').forEach(b=>b.disabled=!!state.mode);
   document.querySelector('#facingSelect').disabled = !!state.mode;
   document.querySelector('#stageIndicator').textContent = state.mode === 'demo' ? 'SIMULATED' : state.mode === 'camera' ? (state.modelReady ? 'AI CAMERA' : 'LOADING MODEL') : 'STANDBY';
+  const perfTag = document.querySelector('#perfIndicator');
+  if (perfTag) perfTag.textContent = state.mode ? `${state.fps || '--'} FPS` : '-- FPS';
 }
 function updateTrainingUI(snapshot = state.analyzer.snapshot()) {
   if (state.view !== 'training') return;
@@ -137,8 +141,22 @@ function updateTrainingUI(snapshot = state.analyzer.snapshot()) {
   $('#angleStat').innerHTML = snapshot.angle === null ? '-- <small>°</small>' : `${snapshot.angle} <small>°</small>`;
   $('#phaseStat').textContent = snapshot.phase;
   $('#clock').textContent = formatTime(activeSeconds());
-  if (state.mode) $('#stageHint').textContent = state.paused ? '训练已暂停，点击继续' :
-    snapshot.visible ? `${EXERCISES[state.exercise].joint}估计角度 ${snapshot.angle}° · ${snapshot.phase}` : '关键点不可见 · 请重新调整机位';
+
+  const depthBar = $('#depthBar');
+  const depthPercent = $('#depthPercent');
+  const sideBadge = $('#activeSideBadge');
+  if (depthBar) {
+    depthBar.style.width = `${Math.min(100, snapshot.progress || 0)}%`;
+    depthBar.className = `depth-meter-bar ${(snapshot.progress || 0) >= 100 ? 'bar-achieved' : ((snapshot.progress || 0) > 20 ? 'bar-active' : '')}`;
+  }
+  if (depthPercent) depthPercent.textContent = `${snapshot.progress || 0}%`;
+  if (sideBadge) {
+    sideBadge.textContent = snapshot.side ? `● ${snapshot.side}跟踪` : '待识别肢体';
+    sideBadge.className = `side-badge ${snapshot.side ? 'side-active' : ''}`;
+  }
+
+  if (state.mode) $('#stageHint').textContent = state.paused ? '训练已暂停（按空格键继续）' :
+    snapshot.visible ? `${snapshot.side || ''}${EXERCISES[state.exercise].joint}估计角度 ${snapshot.angle}° · ${snapshot.phase}` : '关键点不可见 · 请重新调整机位';
 }
 function inform(message, kind = 'info') {
   const feedback = document.querySelector('#feedbackText');
@@ -153,9 +171,18 @@ function activeSeconds() {
   return Math.max(0, Math.floor((performance.now() - state.startPerf - state.pauseDuration - (state.paused ? performance.now() - state.pauseAt : 0)) / 1000));
 }
 function onResult(landmarks, time) {
-  const joint = extractJointAngle(landmarks, state.exercise);
+  const joint = extractJointAngle(landmarks, state.exercise, {
+    preferredSide: state.analyzer.activeSide,
+    hysteresis: 0.12
+  });
+  state.currentHighlightJoints = joint?.ids || null;
   if (state.mode === 'camera' && landmarks?.length) state.trackedFrames++;
-  const snapshot = state.analyzer.update({ angle: joint?.angle ?? null, visible: !!joint, timestamp: time });
+  const snapshot = state.analyzer.update({
+    angle: joint?.angle ?? null,
+    visible: !!joint,
+    timestamp: time,
+    side: joint?.side ?? null
+  });
   updateTrainingUI(snapshot);
   if (snapshot.event) {
     state.warningLogs.push(snapshot.event);
@@ -171,25 +198,51 @@ function onResult(landmarks, time) {
 function renderFrame(now) {
   if (!state.running || state.view !== 'training') return;
   state.frame = requestAnimationFrame(renderFrame);
-  if (state.paused || now - state.lastFrame < 85) return;
+  if (state.paused) return;
+
+  // Real-time FPS monitoring
+  if (!state.fpsLastTime) state.fpsLastTime = now;
+  state.fpsFrames++;
+  if (now - state.fpsLastTime >= 1000) {
+    state.fps = Math.round((state.fpsFrames * 1000) / (now - state.fpsLastTime));
+    state.fpsFrames = 0;
+    state.fpsLastTime = now;
+    const perfTag = document.querySelector('#perfIndicator');
+    if (perfTag && state.mode) {
+      perfTag.textContent = `${state.fps} FPS · ${state.latencyMs ? state.latencyMs + 'ms' : '0ms'}`;
+    }
+  }
+
+  if (now - state.lastFrame < 65) return;
   state.lastFrame = now;
   const canvas = document.querySelector('#poseCanvas');
   if (!canvas) return;
+
   if (state.mode === 'demo') {
     const elapsed = now - state.startPerf - state.pauseDuration;
     const landmarks = simulatePose(elapsed, state.exercise);
-    drawPose(canvas, landmarks, { width: 960, height: 540, label: 'SYNTHETIC POSE · NOT AI' });
     onResult(landmarks, now);
+    drawPose(canvas, landmarks, {
+      width: 960, height: 540,
+      label: 'SYNTHETIC POSE · NOT AI',
+      highlightJoints: state.currentHighlightJoints
+    });
   } else if (state.mode === 'camera' && state.detector) {
     const video = document.querySelector('#liveVideo');
     if (!video || video.readyState < 2 || video.videoWidth === 0) return;
     if (video.currentTime === state.lastVideoTime) return;
     state.lastVideoTime = video.currentTime;
     try {
+      const t0 = performance.now();
       const result = state.detector.detectForVideo(video, now);
+      state.latencyMs = Math.round(performance.now() - t0);
       const landmarks = result.landmarks?.[0] || null;
-      drawPose(canvas, landmarks, { width: video.videoWidth, height: video.videoHeight });
       onResult(landmarks, now);
+      drawPose(canvas, landmarks, {
+        width: video.videoWidth,
+        height: video.videoHeight,
+        highlightJoints: state.currentHighlightJoints
+      });
     } catch (error) {
       inform(`姿态分析暂时失败：${String(error.message || error).slice(0,120)}`, 'warning');
       console.error('Pose inference error', error);
@@ -313,6 +366,13 @@ document.addEventListener('change', event=>{
   if(id==='fatigueInput') state.fatigue=value;
   if(id==='voiceToggle') state.voice=event.target.checked;
   if(id==='facingSelect') state.facing=value;
+});
+window.addEventListener('keydown', event => {
+  if (event.code === 'Space' && state.view === 'training' && state.mode) {
+    if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
+    event.preventDefault();
+    togglePause();
+  }
 });
 window.addEventListener('beforeunload',stopRealtime);
 shell();
