@@ -1,5 +1,5 @@
 /** Dependency-free static server.
- * Enforces strict client asset path whitelisting, symlink rejection, and HTTPS support.
+ * Enforces strict per-zone client asset path whitelisting, directory & file symlink rejection, and HTTPS support.
  */
 import { createServer as createHttpServer } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
@@ -13,6 +13,11 @@ const root = resolve(typeof import.meta.dirname === 'string' ? import.meta.dirna
 const port = Number(process.env.PORT) || 4173;
 const host = process.env.HOST || '127.0.0.1';
 const useHttps = process.env.HTTPS === 'true';
+
+const srcDir = resolve(root, 'src');
+const modelsDir = resolve(root, 'models');
+const indexFile = resolve(root, 'index.html');
+const faviconFile = resolve(root, 'favicon.ico');
 
 const contentTypes = {
   '.html': 'text/html; charset=utf-8',
@@ -31,25 +36,6 @@ const contentTypes = {
   '.woff2': 'font/woff2'
 };
 
-/**
- * R-001 Strict Client Asset Path Whitelist:
- * Only public browser client assets are accessible via HTTP.
- * Internal server files (/server.mjs, /package.json, root JSON/MD files) are strictly 403 Forbidden.
- */
-function isAllowedClientPath(pathname) {
-  if (pathname === '/' || pathname === '/index.html' || pathname === '/favicon.ico') {
-    return true;
-  }
-  if (pathname.startsWith('/src/')) {
-    return true;
-  }
-  if (pathname.startsWith('/models/')) {
-    // Only serve actual models, binaries, wasm, and json metadata under models/
-    return true;
-  }
-  return false;
-}
-
 const FORBIDDEN_EXTENSIONS = new Set([
   '.pem', '.key', '.crt', '.cert', '.p12', '.pfx', '.pkcs8',
   '.env', '.log', '.py', '.pyc', '.md', '.map', '.sh', '.bat', '.ps1'
@@ -60,13 +46,6 @@ async function handleRequest(req, res) {
     const parsedUrl = new URL(req.url || '/', 'http://localhost');
     const pathname = decodeURIComponent(parsedUrl.pathname);
 
-    // 1. Dual-check: Must match client asset path whitelist
-    if (!isAllowedClientPath(pathname)) {
-      res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
-      res.end('Forbidden');
-      return;
-    }
-
     // Reject path traversal tokens
     const relParts = pathname.split('/').filter(Boolean);
     if (relParts.some(part => part === '..' || part.startsWith('.'))) {
@@ -75,24 +54,88 @@ async function handleRequest(req, res) {
       return;
     }
 
+    // 1. Strict Zone Identification: Only exact allowed zones are accepted
+    let expectedDir = null;
+    let expectedExactFile = null;
+
+    if (pathname === '/' || pathname === '/index.html') {
+      expectedExactFile = indexFile;
+    } else if (pathname === '/favicon.ico') {
+      expectedExactFile = faviconFile;
+    } else if (pathname.startsWith('/src/')) {
+      expectedDir = srcDir;
+    } else if (pathname.startsWith('/models/')) {
+      expectedDir = modelsDir;
+    } else {
+      // All other root files (/server.mjs, /package.json, root json/md files) are 403 Forbidden
+      res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Forbidden');
+      return;
+    }
+
     const filename = resolve(root, '.' + pathname, pathname.endsWith('/') ? 'index.html' : '');
 
-    // Path must stay inside project root
-    if (!filename.startsWith(root + sep) && filename !== root) {
+    // 2. Step-by-step symlink check: Inspect EVERY path component from root to leaf
+    let currentPath = root;
+    for (const part of relParts) {
+      currentPath = resolve(currentPath, part);
+      try {
+        const segStat = await lstat(currentPath);
+        if (segStat.isSymbolicLink()) {
+          res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+          res.end('Forbidden');
+          return;
+        }
+      } catch {
+        // If an intermediate segment does not exist, standard 404 will handle it later
+      }
+    }
+
+    // Check leaf file itself with lstat
+    let leafStat;
+    try {
+      leafStat = await lstat(filename);
+    } catch {
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Not found');
+      return;
+    }
+
+    if (leafStat.isSymbolicLink()) {
       res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
       res.end('Forbidden');
       return;
     }
 
-    // 2. Reject sensitive keywords in filenames
-    if (/(?:^|[\\/])(?:key|cert|secret|probe|token|password|credential|private)/i.test(filename)) {
+    // 3. Physical Realpath Verification against Designated Zone
+    const realFilePath = await realpath(filename);
+    if (expectedExactFile) {
+      if (realFilePath !== expectedExactFile) {
+        res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Forbidden');
+        return;
+      }
+    } else if (expectedDir) {
+      if (!realFilePath.startsWith(expectedDir + sep)) {
+        res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Forbidden');
+        return;
+      }
+    } else {
       res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
       res.end('Forbidden');
       return;
     }
 
-    // 3. Extension check
-    const ext = extname(filename).toLowerCase();
+    // 4. Reject sensitive keywords in filenames
+    if (/(?:^|[\\/])(?:key|cert|secret|probe|token|password|credential|private|notes|canary|internal)/i.test(filename)) {
+      res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Forbidden');
+      return;
+    }
+
+    // 5. Extension and Content-Type Verification
+    const ext = extname(realFilePath).toLowerCase();
     if (FORBIDDEN_EXTENSIONS.has(ext)) {
       res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
       res.end('Forbidden');
@@ -101,31 +144,6 @@ async function handleRequest(req, res) {
 
     const contentType = contentTypes[ext];
     if (!contentType) {
-      res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
-      res.end('Forbidden');
-      return;
-    }
-
-    // 4. Strict Symlink & Realpath verification (R-001-A)
-    // Inspect with lstat first: reject if filename itself is a symlink
-    let linkStat;
-    try {
-      linkStat = await lstat(filename);
-    } catch {
-      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-      res.end('Not found');
-      return;
-    }
-
-    if (linkStat.isSymbolicLink()) {
-      res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
-      res.end('Forbidden');
-      return;
-    }
-
-    // Resolve real physical path and verify it stays within web root
-    const realFilePath = await realpath(filename);
-    if (!realFilePath.startsWith(root + sep) && realFilePath !== root) {
       res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
       res.end('Forbidden');
       return;

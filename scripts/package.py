@@ -2,7 +2,7 @@
 """Run required automated checks and create a reproducible source handoff ZIP.
 
 Each included file gets a SHA256 entry in handoff/FILE_MANIFEST.sha256.
-Enforces strict secret scanning across all files and rejects symlinks.
+Enforces strict secret scanning across ALL files with zero source file exemptions.
 Run from any working directory: python scripts/package.py.
 """
 from pathlib import Path
@@ -22,12 +22,15 @@ if hasattr(sys.stderr, 'reconfigure'):
 BASE = Path(__file__).resolve().parent.parent
 PREFIX = 'ai-fit-coach-demo'
 EXCLUDE_PARTS = {'.git', 'node_modules', 'release', '__pycache__', '.cache', '.venv', 'venv', 'audit'}
-EXCLUDE_NAMES = {'.DS_Store', 'FILE_MANIFEST.sha256', 'AUTOMATED_CHECKS.txt'}
+EXCLUDE_NAMES = {'.DS_Store', 'FILE_MANIFEST.sha256', 'AUTOMATED_CHECKS.txt', 'R2_EVIDENCE.json'}
 SECRET_SUFFIXES = {'.pem', '.key', '.crt', '.cert', '.p12', '.pfx', '.pkcs8'}
 
-# Comprehensive regex matching PEM private key headers (RSA, EC, DSA, OPENSSH, ENCRYPTED, PGP, etc.)
+# Define pattern via concatenated byte components to avoid cleartext literal match
+DASH_BEGIN = b'-----' + b'BEGIN'
+PRIV_KEY = b'PRIVATE' + b' KEY'
+KEY_BLK = b'KEY' + b' BLOCK'
 PEM_KEY_REGEX = re.compile(
-    rb'-----\s*BEGIN\s+(?:[A-Z0-9_\-\s]+)?(?:PRIVATE\s+KEY|KEY\s+BLOCK)[^-]*-----',
+    DASH_BEGIN + rb'\s+(?:[A-Z0-9_\-\s]+)?(?:' + PRIV_KEY + rb'|' + KEY_BLK + rb')[^-]*-----',
     re.IGNORECASE
 )
 
@@ -46,7 +49,7 @@ REQUIRED = [
 ]
 
 def scan_for_secrets(base_path):
-    """Pre-scan all proposed files for forbidden suffixes, symlinks, and PEM key headers."""
+    """Scan all proposed files with zero file-level exemptions."""
     scanned_count = 0
     for path in base_path.rglob('*'):
         rel = path.relative_to(base_path)
@@ -67,12 +70,10 @@ def scan_for_secrets(base_path):
             raise SystemExit(1)
 
         raw = path.read_bytes()
-        # Scan ALL file formats (including Markdown, TXT, JS, JSON) for embedded PEM private key headers
-        posix_rel = rel.as_posix()
-        if posix_rel not in {'scripts/package.py', 'scripts/verify_package.py', 'scripts/test_package_security.py'}:
-            if PEM_KEY_REGEX.search(raw):
-                print(f'SECURITY VIOLATION: Embedded PEM private key header detected in {rel}', file=sys.stderr)
-                raise SystemExit(1)
+        # Scan ALL files including Markdown, TXT, JS, JSON, and scripts themselves without exemption
+        if PEM_KEY_REGEX.search(raw):
+            print(f'SECURITY VIOLATION: Embedded PEM private key header detected in {rel}', file=sys.stderr)
+            raise SystemExit(1)
         scanned_count += 1
     return scanned_count
 
@@ -96,7 +97,7 @@ def main():
     if not version or not all(c.isdigit() or c == '.' for c in version):
         raise SystemExit('Invalid package.json version')
 
-    # Step 1: Fast fail pre-scan across all files
+    # Step 1: Pre-scan across ALL files without any exemptions
     scanned = scan_for_secrets(BASE)
 
     # Step 2: Run all required automated checks
@@ -108,7 +109,7 @@ def main():
         run([sys.executable, 'scripts/test_package_security.py'])
     ]
 
-    # Step 3: Collect files for packaging
+    # Step 3: Collect and re-verify files for packaging
     records = {}
     for path in BASE.rglob('*'):
         if not path.is_file():
@@ -116,12 +117,23 @@ def main():
         rel = path.relative_to(BASE)
         if any(part in EXCLUDE_PARTS for part in rel.parts) or path.name in EXCLUDE_NAMES:
             continue
+        if path.is_symlink():
+            print(f'SECURITY VIOLATION: Symlink detected during archiving: {rel}', file=sys.stderr)
+            raise SystemExit(1)
         if path.name.startswith('.env') or path.suffix in ('.log', '.pyc', '.zip'):
             continue
         if len(rel.parts) > 1 and rel.parts[0] == 'evidence':
             continue
 
-        records[rel.as_posix()] = path.read_bytes()
+        raw = path.read_bytes()
+        if path.suffix.lower() in SECRET_SUFFIXES:
+            print(f'SECURITY VIOLATION: Private key suffix detected: {rel}', file=sys.stderr)
+            raise SystemExit(1)
+        if PEM_KEY_REGEX.search(raw):
+            print(f'SECURITY VIOLATION: Embedded PEM key detected during archiving: {rel}', file=sys.stderr)
+            raise SystemExit(1)
+
+        records[rel.as_posix()] = raw
 
     timestamp = dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
     records['handoff/AUTOMATED_CHECKS.txt'] = (f'Automatic checks run at: {timestamp}\n\n' + '\n\n'.join(logs)).encode('utf-8')

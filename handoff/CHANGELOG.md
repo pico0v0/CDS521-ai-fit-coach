@@ -1,5 +1,21 @@
 # CHANGELOG（每轮 AI 必须追加）
 
+## v0.2.1-r3 — 第三轮 P0 最终闭环：目录符号链接边界防御、零源码扫描豁免与烟测清理可靠性（2026-11-05）
+
+### 已修复问题（P0 彻底闭环与交付可靠性）
+- **R-001-A [P0/安全] 逐级目录符号链接防御与分区授权真实路径校验**：
+  - `server.mjs`：对 URL 解码后的每一个路径片段逐级执行 `lstat` 检查，彻底阻断类似 `/src/internal-alias -> ..` 的祖先目录符号链接绕过；
+  - `server.mjs`：将 `realpath` 物理路径校验细化到各自专属授权分区（`/src/` 必须物理处于 `root/src`，`/models/` 必须物理处于 `root/models`，根入口必须等于 `index.html` 或 `favicon.ico`），任何越区访问一律响应 403 Forbidden；
+  - `scripts/smoke.mjs`：增补祖先目录符号链接与测试金丝雀请求断言，确认 GET 与 HEAD 均为 403 且无内容泄漏。
+- **R-001-B [P0/安全] 移除所有打包与验签代码的“整文件扫描豁免”**：
+  - `scripts/package.py` & `scripts/verify_package.py`：完全取消对任何脚本文件的豁免排除，所有拟入包文件 100% 纳入全量字节扫描；
+  - 正则模式与测试代码采用字符串片段拼接构造，避免工具自身包含完整明文私钥头；
+  - 在收集拟打包文件写入 ZIP 前增加二次字节扫描，防止前置扫描后文件发生变更；
+  - `scripts/test_package_security.py`：新增对 `package.py` 和 `verify_package.py` 自身注入 PEM 私钥头的阻断回归测试（场景 4 与场景 5）。
+- **P1-NEW [可靠性] 修复 `smoke.mjs` 清理逻辑，实现交付流程可重复打包**：
+  - `scripts/smoke.mjs`：重构 `finally` 阶段，使用 `lstatSync` 优先解除符号链接本体，避免由于先删目标导致 `existsSync` 对悬空符号链接返回 false 而残留；
+  - `scripts/test_package_security.py`：新增场景 6 自动化验证执行 `node scripts/smoke.mjs` 后无悬空符号链接遗留，且 `python scripts/package.py` 可连续执行无障碍。
+
 ## v0.2.1-r2 — 第二轮 P0 修复：静态服务双重白名单、符号链接防御与私钥全格式扫描（2026-11-05）
 
 ### 已修复问题（P0 补强）

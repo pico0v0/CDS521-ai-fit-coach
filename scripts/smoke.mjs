@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { writeFileSync, unlinkSync, existsSync, symlinkSync } from 'node:fs';
+import { writeFileSync, unlinkSync, rmdirSync, lstatSync, existsSync, symlinkSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
 import { resolve } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -8,26 +8,52 @@ import { tmpdir } from 'node:os';
 const port = 47183;
 const cwd = process.cwd();
 
-// 1. Temporary test canary file in project root (simulating arbitrary private JSON)
+// Temporary test files
 const privateJsonFile = resolve(cwd, 'private_notes.json');
-const CANARY_TEXT = 'FAKE_SECRET_CANARY_2026_DO_NOT_EXPOSE';
-writeFileSync(privateJsonFile, JSON.stringify({ secret: CANARY_TEXT }), 'utf-8');
-
-// 2. Temporary dummy probe key
+const teachingFile = resolve(cwd, 'teaching_results.json');
 const probeKeyFile = resolve(cwd, 'dummy_probe_key.pem');
-writeFileSync(probeKeyFile, '-----BEGIN DUMMY TEST KEY-----\nMIIB...\n-----END DUMMY TEST KEY-----\n', 'utf-8');
-
-// 3. Temporary symlink pointing outside project root
 const outsideTarget = resolve(tmpdir(), 'ai_fit_external_secret.txt');
-writeFileSync(outsideTarget, 'EXTERNAL_SECRET_CONTENT_CANARY', 'utf-8');
-const symlinkFile = resolve(cwd, 'linked-public.js');
-let symlinkCreated = false;
+const symlinkFile = resolve(cwd, 'src', 'outside-demo.js');
+const internalDirSymlink = resolve(cwd, 'src', 'internal-alias');
+
+const CANARY_TEXT = 'FAKE_SECRET_CANARY_2026_DO_NOT_EXPOSE';
+const TEACHING_CANARY = 'R2_TEST_ONLY_CANARY_DO_NOT_PUBLISH';
+const EXTERNAL_CANARY = 'EXTERNAL_DUMMY_CANARY';
+
+writeFileSync(privateJsonFile, JSON.stringify({ secret: CANARY_TEXT }), 'utf-8');
+writeFileSync(teachingFile, TEACHING_CANARY, 'utf-8');
+writeFileSync(probeKeyFile, '-----BEGIN DUMMY TEST KEY-----\nMIIB...\n-----END DUMMY TEST KEY-----\n', 'utf-8');
+writeFileSync(outsideTarget, EXTERNAL_CANARY, 'utf-8');
+
+let fileSymlinkCreated = false;
 try {
   symlinkSync(outsideTarget, symlinkFile, 'file');
-  symlinkCreated = true;
+  fileSymlinkCreated = true;
 } catch {
-  // On some Windows machines, symlink requires Developer Mode or Admin rights
-  symlinkCreated = false;
+  fileSymlinkCreated = false;
+}
+
+let dirSymlinkCreated = false;
+try {
+  symlinkSync('..', internalDirSymlink, 'dir');
+  dirSymlinkCreated = true;
+} catch {
+  dirSymlinkCreated = false;
+}
+
+function safeRemoveSymlink(p) {
+  try {
+    const st = lstatSync(p);
+    if (st.isSymbolicLink()) {
+      if (st.isDirectory()) {
+        try { rmdirSync(p); } catch { unlinkSync(p); }
+      } else {
+        unlinkSync(p);
+      }
+    } else if (existsSync(p)) {
+      unlinkSync(p);
+    }
+  } catch {}
 }
 
 const server = spawn(process.execPath, ['server.mjs'], {
@@ -73,6 +99,7 @@ try {
     '/server.mjs',
     '/package.json',
     '/private_notes.json',
+    '/teaching_results.json',
     '/dummy_probe_key.pem'
   ];
 
@@ -81,31 +108,52 @@ try {
     assert.equal(getRes.status, 403, `GET ${path} must be 403 Forbidden, got ${getRes.status}`);
     const body = await getRes.text();
     assert.ok(!body.includes(CANARY_TEXT), `GET ${path} leaked canary content!`);
+    assert.ok(!body.includes(TEACHING_CANARY), `GET ${path} leaked teaching canary!`);
 
     const headRes = await fetch(`http://127.0.0.1:${port}${path}`, { method: 'HEAD' });
     assert.equal(headRes.status, 403, `HEAD ${path} must be 403 Forbidden, got ${headRes.status}`);
   }
 
-  // C. Symlink test (if created)
-  if (symlinkCreated) {
-    const symlinkRes = await fetch(`http://127.0.0.1:${port}/linked-public.js`);
-    assert.equal(symlinkRes.status, 403, `GET /linked-public.js must be 403 Forbidden, got ${symlinkRes.status}`);
+  // C. File Symlink test
+  if (fileSymlinkCreated) {
+    const symlinkRes = await fetch(`http://127.0.0.1:${port}/src/outside-demo.js`);
+    assert.equal(symlinkRes.status, 403, `GET /src/outside-demo.js must be 403 Forbidden, got ${symlinkRes.status}`);
     const body = await symlinkRes.text();
-    assert.ok(!body.includes('EXTERNAL_SECRET_CONTENT_CANARY'), 'Symlink leaked external secret!');
+    assert.ok(!body.includes(EXTERNAL_CANARY), 'Symlink leaked external secret!');
 
-    const headSymlink = await fetch(`http://127.0.0.1:${port}/linked-public.js`, { method: 'HEAD' });
-    assert.equal(headSymlink.status, 403, `HEAD /linked-public.js must be 403 Forbidden, got ${headSymlink.status}`);
+    const headSymlink = await fetch(`http://127.0.0.1:${port}/src/outside-demo.js`, { method: 'HEAD' });
+    assert.equal(headSymlink.status, 403, `HEAD /src/outside-demo.js must be 403 Forbidden, got ${headSymlink.status}`);
   }
 
-  // D. 404 on non-existent whitelisted path
+  // D. Directory Symlink traversal test (P0-01)
+  if (dirSymlinkCreated) {
+    for (const sub of ['server.mjs', 'package.json', 'teaching_results.json']) {
+      const dirLinkPath = `/src/internal-alias/${sub}`;
+      const res = await fetch(`http://127.0.0.1:${port}${dirLinkPath}`);
+      assert.equal(res.status, 403, `GET ${dirLinkPath} must be 403 Forbidden, got ${res.status}`);
+      const body = await res.text();
+      assert.ok(!body.includes(TEACHING_CANARY), `Directory symlink ${dirLinkPath} leaked content!`);
+
+      const headRes = await fetch(`http://127.0.0.1:${port}${dirLinkPath}`, { method: 'HEAD' });
+      assert.equal(headRes.status, 403, `HEAD ${dirLinkPath} must be 403 Forbidden, got ${headRes.status}`);
+    }
+  }
+
+  // E. 404 on non-existent whitelisted path
   const notFoundRes = await fetch(`http://127.0.0.1:${port}/src/non_existent_module.js`);
   assert.equal(notFoundRes.status, 404, 'Non-existent whitelisted path should return 404');
 
-  console.log('HTTP smoke PASS: routes, MIME, path whitelist, symlink defense, canary protection (R-001-A)');
+  console.log('HTTP smoke PASS: routes, MIME, path whitelist, directory/file symlink defense, zero leakage (R-001-A)');
 } finally {
   server.kill('SIGTERM');
-  if (existsSync(privateJsonFile)) { try { unlinkSync(privateJsonFile); } catch {} }
-  if (existsSync(probeKeyFile)) { try { unlinkSync(probeKeyFile); } catch {} }
+
+  // Clean up symlinks FIRST using lstatSync to prevent dangling symlinks
+  safeRemoveSymlink(symlinkFile);
+  safeRemoveSymlink(internalDirSymlink);
+
+  // Then clean up targets and temporary files
   if (existsSync(outsideTarget)) { try { unlinkSync(outsideTarget); } catch {} }
-  if (existsSync(symlinkFile)) { try { unlinkSync(symlinkFile); } catch {} }
+  if (existsSync(privateJsonFile)) { try { unlinkSync(privateJsonFile); } catch {} }
+  if (existsSync(teachingFile)) { try { unlinkSync(teachingFile); } catch {} }
+  if (existsSync(probeKeyFile)) { try { unlinkSync(probeKeyFile); } catch {} }
 }

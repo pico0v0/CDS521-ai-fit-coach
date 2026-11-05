@@ -8,8 +8,13 @@ from pathlib import Path
 
 PREFIX = 'ai-fit-coach-demo/'
 SECRET_SUFFIXES = {'.pem', '.key', '.crt', '.cert', '.p12', '.pfx', '.pkcs8'}
+
+# Define pattern via concatenated byte components to avoid cleartext literal match
+DASH_BEGIN = b'-----' + b'BEGIN'
+PRIV_KEY = b'PRIVATE' + b' KEY'
+KEY_BLK = b'KEY' + b' BLOCK'
 PEM_KEY_REGEX = re.compile(
-    rb'-----\s*BEGIN\s+(?:[A-Z0-9_\-\s]+)?(?:PRIVATE\s+KEY|KEY\s+BLOCK)[^-]*-----',
+    DASH_BEGIN + rb'\s+(?:[A-Z0-9_\-\s]+)?(?:' + PRIV_KEY + rb'|' + KEY_BLK + rb')[^-]*-----',
     re.IGNORECASE
 )
 
@@ -68,10 +73,9 @@ try:
             got = hashlib.sha256(content).hexdigest()
             if got != expected_sha:
                 raise ValueError('SHA mismatch: ' + name)
-            # Scan archive files for embedded PEM private key headers
-            if name not in {'scripts/package.py', 'scripts/verify_package.py', 'scripts/test_package_security.py'}:
-                if PEM_KEY_REGEX.search(content):
-                    raise ValueError(f'Embedded PEM private key detected in archive file: {name}')
+            # Scan ALL archive files without exemption for embedded PEM private key headers
+            if PEM_KEY_REGEX.search(content):
+                raise ValueError(f'Embedded PEM private key detected in archive file: {name}')
 
         print(f'VERIFIED: {zip_path.name} | {len(files)} files | SHA256 OK | required files OK | zero secrets OK')
 except (OSError, zipfile.BadZipFile, ValueError) as exc:

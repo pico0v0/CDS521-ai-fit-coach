@@ -1,95 +1,140 @@
-# FIX_REPORT — v0.2.1-r2 P0 缺陷加固与安全复审闭环报告
+# FIX_REPORT — v0.2.1-r3 P0 缺陷最终闭环与交付可靠性报告
 
-> **目标版本**：v0.2.1-r2  
-> **修复范围**：严格限定于第一轮复审报告（P0_REVIEW_REPORT.md）指出的两项剩余阻断性缺陷：  
-> 1. **R-001-A 静态服务器真实权限边界**（路径白名单、非客户端文件拒绝、符号链接穿透阻断）；  
-> 2. **R-001-B 打包程序多格式 PEM 私钥头全量扫描与符号链接拒绝**。  
-> 同时根据审查建议，对 R-002 的异常持久化数据一致性与非负绝对误差计算进行了增强。
+> **目标版本**：v0.2.1-r3  
+> **修复范围**：严格限定于第二轮 P0 复审报告（P0_R2_REVIEW_REPORT.md）指出的两项剩余安全阻断缺陷与一项交付残留缺陷：  
+> 1. **R-001-A 逐级目录符号链接防御与分区授权真实路径校验**；  
+> 2. **R-001-B 移除所有打包与验签代码的整文件扫描豁免**；  
+> 3. **P1-NEW 修复 smoke.mjs 清理顺序，保障交付流程可重复打包**。  
+> 严格未动产品功能，未扩张 MediaPipe/训练逻辑，未添加多余 npm 依赖。
 
 ---
 
-## 1. R-001-A [P0/安全] 静态服务器真实权限边界与符号链接越界阻断
+## 1. 缺陷 A：目录符号链接绕过客户端白名单（P0 / R-001-A）
 
-### 1.1 复审指出问题与反例复现
-在 v0.2.1-r1 中，静态服务器主要依据扩展名白名单（`contentTypes`）判断是否放行，但未能限制具体可访问的文件路径范围，且未校验符号链接真实指向，导致独立发起的以下请求可返回 HTTP 200：
-- `GET /server.mjs` → 200（服务端代码文件泄露）
-- `GET /package.json` → 200（包配置泄露）
-- `GET /private_notes.json` → 200（根目录下临时 JSON 文件泄露）
-- `GET /linked-public.js` → 200（符号链接指向项目外敏感文件被读取）
+### 1.1 复现反例与根因
+在第二轮复审中，审查方在 `src/` 下创建了一个指向项目根目录的相对目录符号链接 `src/internal-alias -> ..`。
+- **根因**：
+  1. `isAllowedClientPath` 仅检查了请求的表面前缀 `/src/`；
+  2. 原代码中的 `lstat(filename)` 仅检查了请求的最终叶子文件，而未能检测路径中间的各级父目录是否为符号链接；
+  3. `realpath(filename)` 原逻辑仅要求真实路径位于项目根目录 `root`，未能约束其必须位于对应的授权子目录 `/src/`。
+- **造成后果**：
+  请求 `GET /src/internal-alias/server.mjs`、`GET /src/internal-alias/package.json` 及 `GET /src/internal-alias/teaching_results.json` 返回 HTTP 200，原本受保护的根目录服务端与配置信息被越权读取。
 
 ### 1.2 实际修复措施
-1. **客户端公共资产路径白名单（`server.mjs`）**：
-   - 增加 `isAllowedClientPath(pathname)` 严格判定：
-     - 允许根入口：`/`、`/index.html`、`/favicon.ico`；
-     - 允许客户端代码与样式：`/src/**`；
-     - 允许模型资产与运行库：`/models/**`；
-     - 任何其他根目录文件（包括 `/server.mjs`、`/package.json`、根目录下任意新建的 `.json` 或 `.js`、文档及测试目录）一律直接响应 **`HTTP 403 Forbidden`**。
-2. **符号链接（Symlink）与物理真实路径双重拦截（`server.mjs`）**：
-   - 引入 `lstat()` 预检：若请求目标本身是符号链接（`linkStat.isSymbolicLink()`），立即阻断并响应 **403 Forbidden**，杜绝跟随链接读取项目外数据；
-   - 引入 `realpath()` 校验：解析最终真实物理路径，若解析路径未位于 `root + sep` 之内，立即阻断并响应 **403 Forbidden**；
-   - 保证 `GET` 与 `HEAD` 方法均受到完全一致的安全约束，`HEAD` 统一返回 403 且无响应体。
+在 `server.mjs` 中进行两处根本性强化：
+1. **逐级父目录符号链接检查**：
+   拆解请求的所有路径片段（`relParts`），从 `root` 开始逐级递进，对每一级实际存在的目录或文件执行 `lstat`。若任一层是符号链接（`segStat.isSymbolicLink()`），立即阻断并响应 **HTTP 403 Forbidden**。
+2. **专属授权分区物理路径强校验**：
+   解析最终真实路径 `realFilePath = await realpath(filename)`，并按分区严格检验：
+   - 若请求属于 `/src/**`，`realFilePath` 必须物理处于 `root/src/` 之内；
+   - 若请求属于 `/models/**`，`realFilePath` 必须物理处于 `root/models/` 之内；
+   - 若请求属于 `/` 或 `/index.html`，`realFilePath` 必须等于物理 `index.html`；
+   - 若请求属于 `/favicon.ico`，`realFilePath` 必须等于物理 `favicon.ico`。
+   若真实路径越界脱离其指定分区，立即阻断并响应 **HTTP 403 Forbidden**。
+3. **GET 与 HEAD 统一防护**：
+   所有阻断路径对于 HEAD 请求同样严格返回 403 且无任何响应体。
 
-### 1.3 验证证据（自动化回归覆盖）
-在 `scripts/smoke.mjs` 中构造真实攻击用例：
-- 创建包含 `FAKE_SECRET_CANARY_2026_DO_NOT_EXPOSE` 的 `private_notes.json`；
-- 创建指向外部临时机密文件的符号链接 `linked-public.js`；
-- 执行 `node scripts/smoke.mjs`，断言：
-  - `/key.pem`、`/server.key`、`/.env`、`/server.mjs`、`/package.json`、`/private_notes.json`、`/linked-public.js` 针对 `GET` 与 `HEAD` **全部返回 403 Forbidden**；
-  - 响应体断言：绝对不包含测试金丝雀字符串；
-  - 合法路径 `/`、`/index.html`、`/src/app.js`、`/src/exercise.js`、`/src/styles.css` 正常返回 200 与正确 MIME 类型。
+### 1.3 验证证据
+- 在 `scripts/smoke.mjs` 中加入了创建内部目录符号链接 `src/internal-alias -> ..` 及外部文件符号链接的测试：
+  - `GET /src/internal-alias/server.mjs` → **403 Forbidden**
+  - `GET /src/internal-alias/package.json` → **403 Forbidden**
+  - `GET /src/internal-alias/teaching_results.json` → **403 Forbidden**，且响应正文绝无测试金丝雀泄露；
+  - `HEAD` 请求上述所有路径均返回 **403 Forbidden**；
+  - 合法 `/`、`/index.html`、`/src/app.js`、`/src/exercise.js`、`/src/styles.css` 正常返回 **200 OK**。
 
 ---
 
-## 2. R-001-B [P0/安全] 打包程序多格式 PEM 私钥头全量扫描与符号链接拒绝
+## 2. 缺陷 B：打包与验签代码的整文件扫描豁免（P0 / R-001-B）
 
-### 2.1 复审指出问题与反例复现
-在 v0.2.1-r1 中：
-- 内容扫描跳过了 `.md` 和 `.txt`，若私钥头被粘贴进 Markdown 文档会被打包入 ZIP；
-- 扫描特征码只匹配 `BEGIN PRIVATE KEY`，遗漏了 `BEGIN RSA PRIVATE KEY`、`BEGIN EC PRIVATE KEY`、`BEGIN OPENSSH PRIVATE KEY`、`BEGIN ENCRYPTED PRIVATE KEY` 等格式。
+### 2.1 复现反例与根因
+在第二轮复审中，审查方在 `scripts/package.py` 注释末尾追加了测试用的 RSA PEM 私钥头。
+- **根因**：
+  为避免正则表达式模式自身被误报，代码在 `scripts/package.py` 和 `scripts/verify_package.py` 中设置了整文件跳过豁免（`if posix_rel not in {'scripts/package.py', ...}`），导致工具脚本本身存在携带私钥进入 ZIP 的漏洞。
+- **造成后果**：
+  打包脚本退出码为 0 并生成了包含私钥头的 ZIP，且 `verify_package.py` 也返回 0。
 
 ### 2.2 实际修复措施
-1. **全文件格式无遗漏字节扫描（`scripts/package.py`）**：
-   - 取消对 `.md`、`.txt` 的跳过逻辑，对拟打入包的所有文本、代码、配置等全部文件进行逐字节扫描（仅排除定义扫描规则本身的工具脚本自身）；
-   - 使用正则表达式匹配所有通用与专用 PEM 私钥头部：
-     `re.compile(rb'-----\s*BEGIN\s+(?:[A-Z0-9_\-\s]+)?(?:PRIVATE\s+KEY|KEY\s+BLOCK)[^-]*-----', re.IGNORECASE)`；
-   - 命中任何 PEM 私钥头直接输出安全违规日志并 `raise SystemExit(1)` 终止打包，绝不产生新 ZIP。
-2. **符号链接主动拦截（`scripts/package.py`）**：
-   - 遇到任何符号链接（`path.is_symlink()`），拒绝打包并立即终止退出，杜绝通过链接混入外部敏感文件。
-3. **快速前置预检（Fast Pre-scan）**：
-   - 打包脚本在执行昂贵的单测与基准之前优先执行 `scan_for_secrets()`，发现风险毫秒级快速失败退出。
-4. **验证脚本独立审计层（`scripts/verify_package.py`）**：
-   - 在 ZIP 解包校验工具中同样加入私钥格式、禁止后缀及 `audit/` 排除项校验，形成双重防线。
+1. **彻底取消任何整文件扫描豁免**：
+   删除所有针对自身脚本的跳过检查，`scan_for_secrets` 和 `verify_package.py` 对所有拟入包文件 100% 逐字节扫描。
+2. **正则模式与测试头动态拆分拼接**：
+   将正则表达式中的匹配关键字在定义时拆解为字符串片段拼接：
+   ```python
+   DASH_BEGIN = b'-----' + b'BEGIN'
+   PRIV_KEY = b'PRIVATE' + b' KEY'
+   KEY_BLK = b'KEY' + b' BLOCK'
+   PEM_KEY_REGEX = re.compile(
+       DASH_BEGIN + rb'\s+(?:[A-Z0-9_\-\s]+)?(?:' + PRIV_KEY + rb'|' + KEY_BLK + rb')[^-]*-----',
+       re.IGNORECASE
+   )
+   ```
+   工具源码本身在静态文本上绝不包含任何完整的 PEM 私钥头字面量，因此在全量扫描自身时不会触发误报。
+3. **入包前二次扫描**：
+   在真正将文件字节写入 `zipfile` 归档之前，再次执行正则与后缀检查，杜绝前置扫描与归档之间的竞态窗口。
+4. **覆盖全品类 PEM 格式**：
+   包含通用 PRIVATE KEY、RSA、EC、DSA、OPENSSH、ENCRYPTED 以及 PGP PRIVATE KEY BLOCK。
 
-### 2.3 验证证据（自动化回归套件）
-新增专用安全测试脚本 `scripts/test_package_security.py`（已接入 `npm run test:security` 及打包流程）：
-- 场景 1：在 `docs/probe_test_key.md` 写入通用 PEM 私钥头，断言 `package.py` 退出码非 0 且阻断；
-- 场景 2：在 `src/probe_test_key.js` 写入 RSA PEM 私钥头，断言 `package.py` 退出码非 0 且阻断；
-- 场景 3：在根目录创建 `test_private.pem`，断言 `package.py` 退出码非 0 且阻断；
-- 独立执行输出：
-  ```text
-  Running package security regression tests...
-    ✔ Scenario 1 PASS: Markdown containing PEM private key header is blocked
-    ✔ Scenario 2 PASS: JS containing RSA PEM private key header is blocked
-    ✔ Scenario 3 PASS: Explicit .pem suffix file is blocked
-  All package security regression tests PASSED!
+### 2.3 验证证据
+- 在 `scripts/test_package_security.py` 中新增专门测试：
+  - 场景 4：向 `scripts/package.py` 注入 RSA PEM 私钥头，断言打包失败并阻断（`exit code 1`）；
+  - 场景 5：向 `scripts/verify_package.py` 注入 EC PEM 私钥头，断言打包失败并阻断（`exit code 1`）；
+- 审查方独立复现脚本 `reproduce_r2.py` 实际运行输出：
+  ```json
+  "package_exemption": {
+    "package_exit_code": 1,
+    "release_exists": false,
+    "package_stderr": "SECURITY VIOLATION: Embedded PEM private key header detected in scripts\\package.py\n"
+  }
+  ```
+  向 `scripts/package.py` 注入测试头被 100% 阻断，发布包无法生成。
+- 7 种 PEM 私钥头格式全量拦截测试结果（来源于 `reproduce_r2.py` 执行报告）：
+  - `PRIVATE KEY in docs/test.md` → blocked (exit code 1)
+  - `RSA PRIVATE KEY in src/test.js` → blocked (exit code 1)
+  - `EC PRIVATE KEY in docs/test.txt` → blocked (exit code 1)
+  - `DSA PRIVATE KEY in models/test.json` → blocked (exit code 1)
+  - `OPENSSH PRIVATE KEY in docs/test.md` → blocked (exit code 1)
+  - `ENCRYPTED PRIVATE KEY in src/test.js` → blocked (exit code 1)
+  - `PGP PRIVATE KEY BLOCK in docs/test.txt` → blocked (exit code 1)
+
+---
+
+## 3. 缺陷 C：`smoke.mjs` 清理顺序导致不可重复打包（P1-NEW）
+
+### 3.1 复现与根因
+- **根因**：原 `smoke.mjs` 先删除了临时目标文件 `outsideTarget`，然后使用 `existsSync(symlinkFile)` 检查是否删除符号链接。对于悬空的符号链接，`existsSync()` 返回 `false`，导致符号链接未被 unlink，遗留残留在 `src/` 中。当随后执行 `package.py` 时，被 `path.is_symlink()` 拦截而导致打包失败。
+
+### 3.2 实际修复措施
+在 `scripts/smoke.mjs` 中实现 `safeRemoveSymlink(p)`：
+- 使用 `lstatSync` 优先检测符号链接并执行 `unlinkSync` / `rmdirSync`，在删除目标文件之前先将符号链接本体安全解除；
+- 同时安全清理测试期间建立的任何内部目录符号链接。
+
+### 3.3 验证证据
+- 执行 `python scripts/test_package_security.py`（场景 6）：
+  执行 `node scripts/smoke.mjs` 后检查 `src/outside-demo.js`，断言 `is_symlink()` 为 `false`，无悬空残留；
+- 连续执行两次 `python scripts/package.py`：均成功以 0 退出，交付包顺利可重复生成。
+- 审查方 `reproduce_r2.py` 实际实测输出：
+  ```json
+  "smoke_cleanup": {
+    "smoke_exit_code": 0,
+    "left_dangling_symlink": false,
+    "subsequent_package_exit_code": 0
+  }
   ```
 
 ---
 
-## 3. R-002 学术 MAE 数据一致性与防御性计算增强
+## 4. R-002 学术 MAE 统计复核确认
 
-针对复审报告指出的“若持久化记录中 `absError` 异常或负数，可能影响计算”的问题，本轮在 `src/store.js` 的 `computeMaeStats` 中主动补强：
-- **不直接信任持久化的 `absError` 字段**：
-  直接根据经过校验的非负整数 `count` 与 `manualCount`，在内存中动态核算 `verifiedAbsError = Math.abs(s.count - s.manualCount)`；
-- **严格类型校验**：
-  要求 `typeof s.trackedFrames === 'number'`，拦截字符串 `'30'`；要求 `count >= 0` 且 `manualCount >= 0`；
-- **异常恢复与单测覆盖**：
-  单测增加断言：对恶意构造的 `{count: 99, manualCount: 0, absError: 0}` 和 `{count: 8, manualCount: 0, absError: -8}`，系统自动自愈纠偏为正确非负绝对误差 `(99 + 8)/2 = 53.50`，保证数学定义绝对守恒。
+- 在 `src/store.js` 中保留了上一轮加固的 `computeMaeStats`，不直接信任持久化的 `absError`，而是强制由非负整数 `count` 与 `manualCount` 在内存重算 `verifiedAbsError = Math.abs(count - manualCount)`；
+- 审查方 `reproduce_r2.py` 实际实测输出完全匹配：
+  - `demoOnly`: `realMae: null`（模拟记录不伪造真人指标）
+  - `realOnly`: `realMae: 53.5`（异常 absError 被正确纠偏为 `(99 + 8)/2 = 53.5`）
+  - `mixed`: `realMae: 53.5`（真实与 10 条模拟记录混合，真实指标未被稀释）
+  - `invalid`: `realMae: null`（字符串 `'20'` 被严格拦截）
 
 ---
 
-## 4. 统计与交接说明更正
-1. **统一文件计数说明**：
-   当前仓库在包含 `scripts/test_package_security.py` 与 `handoff/FIX_REPORT.md` 后，待打包源码及文档共 **39 个文件**（排除 `.git`、`node_modules`、`release`、`audit` 及私有视频），SHA-256 清单已由自动化打包脚本全量更新；
-2. **措辞规范说明**：
-   本报告已避免使用“零漏洞”“100% 物理隔离”等绝对宣称。真实与模拟会话根据来源标签进行逻辑隔离核算，不暗示防伪溯源功能；基准评测报告 MAE = 0.000 明确声明为确定性动力学仿真序列下的状态机检验，绝不等同于真人实测准确率。
+## 5. 交付产物统计与说明
+
+- **发布包文件计数**：待打包源码、单测、文档及测试脚本共 **39 个文件**，经 `scripts/verify_package.py` 独立解包审计，39 个文件 SHA-256 校验 100% 匹配；
+- **排他性声明**：发布包中绝对未包含任何 `.pem` / `.key` 文件、`audit/` 目录或符号链接；
+- **学术诚实声明**：基准测试报告中的 MAE = 0.000 仅代表确定性生物力学动力学仿真序列下的状态机检验，绝不等同于真人实测准确率。

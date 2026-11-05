@@ -9,3 +9,5 @@ __pycache__/
 models/*.task
 models/wasm/
 audit/
+R2_EVIDENCE.json
+*.jsonl
