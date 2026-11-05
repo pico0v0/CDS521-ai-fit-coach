@@ -28,7 +28,8 @@ REQUIRED = [
     'docs/DEVELOPMENT_PLAN.md','docs/MANUAL_TEST.md','docs/NEXT_AI_PROMPT.md',
     'handoff/HANDOFF_RULES.md','handoff/CHANGELOG.md',
     'handoff/TEST_RESULTS.md','handoff/KNOWN_ISSUES.md','handoff/REVIEW_REQUEST.md',
-    'scripts/package.py','scripts/verify_package.py',
+    'scripts/package.py','scripts/verify_package.py','scripts/download_models.py',
+    'models/README.md',
 ]
 
 def run(cmd):

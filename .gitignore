@@ -6,3 +6,5 @@ release/
 .DS_Store
 __pycache__/
 *.pyc
+models/*.task
+models/wasm/

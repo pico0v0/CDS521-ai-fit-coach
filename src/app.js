@@ -317,13 +317,14 @@ async function begin(mode) {
     video.srcObject = stream;
     await video.play();
     modelMessage('摄像头已开启，正在加载 Google MediaPipe 模型…');
-    const { detector } = await createPoseLandmarker();
+    const { detector, isLocalModel } = await createPoseLandmarker();
     if (run !== state.activeRunId) { detector.close(); return; }
     state.detector = detector; state.modelReady = true;
     // Exclude model downloading time from the reported workout length.
     state.startWall = Date.now(); state.startPerf = performance.now();
     refreshModeUI();
-    modelMessage('真正的 MediaPipe 姿态模型已加载。请根据机位指引调整身体位置。', 'success');
+    const sourceText = isLocalModel ? '真正的 MediaPipe 姿态模型（本地离线模型）已加载。' : '真正的 MediaPipe 姿态模型已从网络加载。';
+    modelMessage(`${sourceText}请根据机位指引调整身体位置。`, 'success');
     inform('模型就绪，站稳后进行完整动作。单人侧面机位效果通常更稳定。');
     const stage = document.querySelector('#cameraStage');
     stage?.classList.toggle('mirror', state.facing==='user');

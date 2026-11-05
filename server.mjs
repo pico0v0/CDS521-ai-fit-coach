@@ -24,8 +24,19 @@ createServer(async (req, res) => {
     }
     const info = await stat(filename);
     if (!info.isFile()) throw new Error('Not a file');
+    if (req.method === 'HEAD') {
+      res.writeHead(200, {
+        'Content-Type': contentTypes[extname(filename)] || 'application/octet-stream',
+        'Content-Length': info.size,
+        'Cache-Control': 'no-cache',
+        'X-Content-Type-Options': 'nosniff'
+      });
+      res.end();
+      return;
+    }
     const data = await readFile(filename);
     res.writeHead(200, { 'Content-Type': contentTypes[extname(filename)] || 'application/octet-stream',
+      'Content-Length': info.size,
       'Cache-Control': 'no-cache', 'X-Content-Type-Options': 'nosniff' });
     res.end(data);
   } catch {

@@ -1,5 +1,18 @@
 # CHANGELOG（每轮 AI 必须追加）
 
+## v0.1.5 — 离线本地模型智能加载与下载脚本（实现 M2-01）
+
+### 已新增与改进
+- **本地离线模型智能优先策略（解决 KI-005）**：
+  - `src/pose.js`：新增 `resolveModelAssets` 探测机制，优先使用本地 `/models/pose_landmarker_lite.task` 及本地 WASM 文件，无本地文件时平滑回退至官方 CDN；
+  - 增加 18 秒超时控制与清晰的自检报错，杜绝因网络阻断而无限等待；
+  - 启动成功后在界面明确标记 `（本地离线模型）` 或 `（网络加载）`，让评委与开发者对当前加载源一清二楚。
+- **离线模型一键下载工具（`scripts/download_models.py`）**：
+  - 提供零第三方依赖的标准 Python 脚本，支持一键将官方 MediaPipe 模型（9MB）与 WASM 环境下载到 `models/` 目录；
+  - `npm run download-models` 快捷集成；`.gitignore` 自动忽略大型二进制文件。
+- **本地静态服务器（`server.mjs`）**：
+  - 支持 HTTP `HEAD` 轻量探测请求与正确的 `.task` 二进制流响应头。
+
 ## v0.1.4 — 实验数据多格式导出（CSV/JSON）与语音试听调试（2026-11-05）
 
 ### 已新增与改进
