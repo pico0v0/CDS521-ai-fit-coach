@@ -276,16 +276,16 @@ function refreshModeUI() {
     demoStdBtn.disabled = state.mode === 'camera' || state.mode === 'video';
     const isStdActive = state.mode === 'demo' && state.demoType === 'standard';
     demoStdBtn.classList.toggle('active', isStdActive);
-    demoStdBtn.innerHTML = isStdActive ? '⏹ &nbsp; 结束示范' : '▷ &nbsp; 正确姿势示范';
-    demoStdBtn.title = isStdActive ? '点击结束当前标准示范' : '展示 100% 达标深度的标准动作规范示范';
+    demoStdBtn.innerHTML = '▷ &nbsp; 正确姿势示范';
+    demoStdBtn.title = isStdActive ? '正在演示标准规范（点击可退出演示）' : '展示 100% 达标深度的标准动作规范示范';
   }
   const demoFaultBtn = document.querySelector('#startDemoFault');
   if (demoFaultBtn) {
     demoFaultBtn.disabled = state.mode === 'camera' || state.mode === 'video';
     const isFaultActive = state.mode === 'demo' && state.demoType === 'fault';
     demoFaultBtn.classList.toggle('active-fault', isFaultActive);
-    demoFaultBtn.innerHTML = isFaultActive ? '⏹ &nbsp; 结束演示' : '⚠ &nbsp; 常见错误演示';
-    demoFaultBtn.title = isFaultActive ? '点击结束当前错误演示' : '展示常见代偿动作与 AI 警报判定';
+    demoFaultBtn.innerHTML = '⚠ &nbsp; 常见错误演示';
+    demoFaultBtn.title = isFaultActive ? '正在演示常见错误（点击可退出演示）' : '展示常见代偿动作与 AI 警报判定';
   }
   const oldDemoBtn = document.querySelector('#startDemo');
   if (oldDemoBtn) oldDemoBtn.disabled = !!state.mode;
@@ -294,9 +294,13 @@ function refreshModeUI() {
   const endBtn = document.querySelector('#endBtn');
   if (endBtn) {
     endBtn.disabled = !state.mode;
-    endBtn.textContent = state.mode === 'demo'
-      ? (state.demoType === 'fault' ? '结束演示' : '结束示范')
-      : '结束训练';
+    if (state.mode === 'demo') {
+      endBtn.innerHTML = '⏹ &nbsp; 退出演示';
+      endBtn.className = 'btn btn-stop-demo';
+    } else {
+      endBtn.innerHTML = '结束训练';
+      endBtn.className = 'btn btn-danger';
+    }
   }
   document.querySelectorAll('[data-exercise]').forEach(b=>b.disabled=!!state.mode);
   document.querySelector('#facingSelect').disabled = !!state.mode;
