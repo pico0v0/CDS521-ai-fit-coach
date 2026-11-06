@@ -6,7 +6,9 @@ export function simulatedAngle(elapsedMs, exerciseId) {
   const period = 4700;
   const cycle = Math.floor(elapsedMs / period);
   const t = (elapsedMs % period) / period;
-  const easing = u => u * u * (3 - 2 * u);
+  // Asymmetric ease improves perceived momentum without moving any phase boundary
+  // or changing standing/peak angles consumed by the counting state machine.
+  const easing = (u, skew) => u * u * (3 - 2 * u) + skew * 4 * u * u * (1 - u) * (1 - u);
 
   if (exerciseId === 'jumping_jack') {
     const full = 138;
@@ -14,9 +16,9 @@ export function simulatedAngle(elapsedMs, exerciseId) {
     const peak = cycle % 4 === 2 ? partial : full;
     const standing = 25;
     if (t < .18) return standing;
-    if (t < .46) return standing + (peak - standing) * easing((t - .18) / .28);
+    if (t < .46) return standing + (peak - standing) * easing((t - .18) / .28, -0.28);
     if (t < .57) return peak;
-    if (t < .86) return peak - (peak - standing) * easing((t - .57) / .29);
+    if (t < .86) return peak - (peak - standing) * easing((t - .57) / .29, 0.28);
     return standing;
   }
 
@@ -25,9 +27,9 @@ export function simulatedAngle(elapsedMs, exerciseId) {
   const floor = cycle % 4 === 2 ? partial : full;
   const standing = 174;
   if (t < .18) return standing;
-  if (t < .46) return standing - (standing - floor) * easing((t-.18)/.28);
+  if (t < .46) return standing - (standing - floor) * easing((t-.18)/.28, -0.28);
   if (t < .57) return floor;
-  if (t < .86) return floor + (standing-floor) * easing((t-.57)/.29);
+  if (t < .86) return floor + (standing-floor) * easing((t-.57)/.29, 0.28);
   return standing;
 }
 
@@ -133,7 +135,6 @@ export function simulatePose(elapsedMs, exerciseId, options = {}) {
     put(points, 0, headX, headY);
   } else {
     const angleDeg = simulatedAngle(elapsedMs, exerciseId);
-    const R = 960 / 540;
     const shoulderX = 0.52, shoulderY = 0.28;
     const L_upper = 0.20, L_fore = 0.18;
 
@@ -154,21 +155,19 @@ export function simulatePose(elapsedMs, exerciseId, options = {}) {
     // 2. Upper arm: pinned close to torso (drift = 0.03 <= 0.11); swings forward on fault (drift = 0.13 > 0.11)
     const swingOffset = injectFault ? 0.13 : 0.03;
     const elbowX = shoulderX + swingOffset;
-    const dx_norm = swingOffset * R;
-    const dy = Math.sqrt(Math.max(0.01, L_upper * L_upper - dx_norm * dx_norm));
+    // Curl joints use one isotropic coordinate system; demo rendering uses the
+    // same scale on both axes, so even the injected swing keeps a rigid upper arm.
+    const dy = Math.sqrt(L_upper * L_upper - swingOffset * swingOffset);
     const elbowY = shoulderY + dy;
     put(points, 13, elbowX, elbowY);
 
-    // 3. Forearm: curls smoothly with 16:9 aspect-ratio compensation (constant 97px pixel length, exact angleDeg)
+    // 3. Forearm: rigid rotation about the elbow, preserving the analyzer angle
     const vES_x = shoulderX - elbowX;
     const vES_y = shoulderY - elbowY;
     const normAlpha = Math.atan2(vES_y, vES_x);
     const targetWristAngle = normAlpha + angleDeg * Math.PI / 180;
-    const c_w = Math.cos(targetWristAngle);
-    const s_w = Math.sin(targetWristAngle);
-    const denom_w = Math.hypot(c_w * R, s_w);
-    const wristX = elbowX + (L_fore * c_w) / denom_w;
-    const wristY = elbowY + (L_fore * s_w) / denom_w;
+    const wristX = elbowX + L_fore * Math.cos(targetWristAngle);
+    const wristY = elbowY + L_fore * Math.sin(targetWristAngle);
     put(points, 15, wristX, wristY);
   }
   return points;

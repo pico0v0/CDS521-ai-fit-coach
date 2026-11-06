@@ -26,6 +26,8 @@ const state = {
   lastSession: null, toast: '', activeRunId: 0, modelReady: false, trackedFrames: 0,
   fps: 0, latencyMs: 0, latencySumMs: 0, fpsFrames: 0, fpsLastTime: 0, totalInferredFrames: 0, inferFramesWindow: 0, currentHighlightJoints: null
 };
+let trainingNodes = null;
+const TRAINING_IDS = ['poseCanvas','repsCount','partialCount','angleValue','phaseStat','clock','targetDepthLabel','depthBar','depthPercent','activeSideBadge','stageHint'];
 const icons = {
   home:'⌂', training:'◉', reports:'▥', about:'◇', camera:'▣', close:'×',
 };
@@ -53,6 +55,7 @@ function shell() {
   renderPage();
 }
 function renderPage() {
+  trainingNodes = null;
   const page = document.querySelector('#page-content');
   if (!page) return;
   if (state.view === 'home') page.innerHTML = homePage();
@@ -101,7 +104,7 @@ function trainingPage() {
       <div class="module-heading"><div><span class="section-index">02</span><strong>动作设置与分析</strong></div><span class="mini-sub">REAL-TIME</span></div>
       <div class="settings-card"><div class="input-label">选择动作 <span>EXERCISE</span></div><div class="exercise-switch"><button type="button" data-exercise="squat" class="exercise-btn ${state.exercise==='squat'?'selected':''}">深蹲 <small>SQUAT</small></button><button type="button" data-exercise="curl" class="exercise-btn ${state.exercise==='curl'?'selected':''}">弯举 <small>CURL</small></button><button type="button" data-exercise="jumping_jack" class="exercise-btn ${state.exercise==='jumping_jack'?'selected':''}">开合跳 <small>JACK</small></button></div><div class="select-grid"><label>训练目标<select id="goalInput"><option value="habit" ${state.goal==='habit'?'selected':''}>培养习惯</option><option value="strength" ${state.goal==='strength'?'selected':''}>力量训练</option><option value="endurance" ${state.goal==='endurance'?'selected':''}>提高耐力</option></select></label><label>目前疲劳<select id="fatigueInput"><option value="normal" ${state.fatigue==='normal'?'selected':''}>一般</option><option value="low" ${state.fatigue==='low'?'selected':''}>较低</option><option value="high" ${state.fatigue==='high'?'selected':''}>较高</option></select></label></div><div class="select-grid" style="margin-top:10px"><label>动作难度<select id="difficultySelect"><option value="beginner" ${state.difficulty==='beginner'?'selected':''}>初学 (幅度阈值较低)</option><option value="standard" ${state.difficulty==='standard'?'selected':''}>标准 (推荐)</option><option value="advanced" ${state.difficulty==='advanced'?'selected':''}>进阶 (更高幅度要求)</option></select></label><label>目标次数<select id="targetRepsSelect"><option value="0" ${state.targetReps===0?'selected':''}>自由练习 (不限)</option><option value="5" ${state.targetReps===5?'selected':''}>5 次 (体验组)</option><option value="10" ${state.targetReps===10?'selected':''}>10 次 (标准组)</option><option value="15" ${state.targetReps===15?'selected':''}>15 次 (耐力组)</option></select></label></div><div class="minor-options"><label class="voice-option"><input type="checkbox" id="voiceToggle" ${state.voice?'checked':''}> <span>语音反馈</span><button type="button" class="btn-text-test" data-action="test-voice" title="测试播报">试听 🔊</button></label><label>摄像头 <select id="facingSelect"><option value="user" ${state.facing==='user'?'selected':''}>前置</option><option value="environment" ${state.facing==='environment'?'selected':''}>后置</option></select></label></div></div>
       <div class="stat-large"><div><span class="stat-label">有效次数</span><div class="big-number" id="repsCount">00</div></div><div class="stat-side"><div><span>进行时间</span><strong id="clock">00:00</strong></div><div><span>未达演示幅度</span><strong id="partialCount">00</strong></div></div></div>
-      <div class="stat-row"><div class="stat-small"><span>关节角度 <small>2D EST.</small></span><strong id="angleStat">-- <small>°</small></strong></div><div class="stat-small"><span>动作状态</span><strong id="phaseStat" class="phase-text">等待站稳</strong></div></div>
+      <div class="stat-row"><div class="stat-small"><span>关节角度 <small>2D EST.</small></span><strong id="angleStat"><span id="angleValue">--</span> <small>°</small></strong></div><div class="stat-small"><span>动作状态</span><strong id="phaseStat" class="phase-text">等待站稳</strong></div></div>
       <div class="depth-card"><div class="depth-head"><span>动作深度完成度</span><strong id="depthPercent">0%</strong></div><div class="depth-meter-track"><div class="depth-meter-bar" id="depthBar"></div></div><div class="depth-labels"><span>起始准备 (${ex.extended}°)</span><span id="activeSideBadge" class="side-badge">待识别肢体</span><span id="targetDepthLabel">达标幅度 (${state.analyzer.exercise.full}°)</span></div></div>
       <div class="feedback-card"><div class="feedback-head"><span class="feedback-indicator"></span><strong>教练反馈</strong><span>LIVE FEEDBACK</span></div><p id="feedbackText" aria-live="polite">准备就绪。请先选择摄像头或模拟演示。</p><div class="feedback-bottom">基于动作规则，不用于医学诊断</div></div>
     </aside></div>
@@ -180,35 +183,37 @@ function refreshModeUI() {
     }
   }
 }
+function getTrainingNodes() {
+  if (trainingNodes) return trainingNodes;
+  const nodes = Object.fromEntries(TRAINING_IDS.map(id => [id, document.querySelector('#' + id)]));
+  if (!nodes.poseCanvas || !nodes.repsCount) return null;
+  trainingNodes = nodes;
+  return nodes;
+}
 function updateTrainingUI(snapshot = state.analyzer.snapshot()) {
   if (state.view !== 'training') return;
-  const $ = sel => document.querySelector(sel);
-  $('#repsCount').textContent = int(snapshot.count);
-  $('#repsCount').style.color = state.targetAchieved ? '#fde047' : '';
-  $('#partialCount').textContent = int(snapshot.partialCount);
-  $('#angleStat').innerHTML = snapshot.angle === null ? '-- <small>°</small>' : `${snapshot.angle} <small>°</small>`;
-  $('#phaseStat').textContent = snapshot.phase;
-  $('#clock').textContent = formatTime(activeSeconds());
-
-  const targetLabel = $('#targetDepthLabel');
-  if (targetLabel) targetLabel.textContent = `达标幅度 (${state.analyzer.exercise.full}°)`;
-
-  const depthBar = $('#depthBar');
-  const depthPercent = $('#depthPercent');
-  const sideBadge = $('#activeSideBadge');
-  if (depthBar) {
-    depthBar.style.width = `${Math.min(100, snapshot.progress || 0)}%`;
-    depthBar.className = `depth-meter-bar ${(snapshot.progress || 0) >= 100 ? 'bar-achieved' : ((snapshot.progress || 0) > 20 ? 'bar-active' : '')}`;
-  }
-  if (depthPercent) depthPercent.textContent = `${snapshot.progress || 0}%`;
-  if (sideBadge) {
-    sideBadge.textContent = snapshot.side ? `● ${snapshot.side}跟踪` : '待识别肢体';
-    sideBadge.className = `side-badge ${snapshot.side ? 'side-active' : ''}`;
-  }
-
-  if (state.mode) $('#stageHint').textContent = state.paused ? '训练已暂停（按空格键继续）' :
-    snapshot.visible ? `${snapshot.side || ''}${EXERCISES[state.exercise].joint}估计角度 ${snapshot.angle}° · ${snapshot.phase}` : '关键点不可见 · 请重新调整机位';
+  const ui = getTrainingNodes();
+  if (!ui) return;
+  const setText = (node, value) => { if (node && node.textContent !== value) node.textContent = value; };
+  const setClass = (node, value) => { if (node && node.className !== value) node.className = value; };
+  const setStyle = (node, key, value) => { if (node && node.style[key] !== value) node.style[key] = value; };
+  setText(ui.repsCount, int(snapshot.count));
+  setStyle(ui.repsCount, 'color', state.targetAchieved ? 'rgb(253, 224, 71)' : '');
+  setText(ui.partialCount, int(snapshot.partialCount));
+  setText(ui.angleValue, snapshot.angle === null ? '--' : String(snapshot.angle));
+  setText(ui.phaseStat, snapshot.phase);
+  setText(ui.clock, formatTime(activeSeconds()));
+  setText(ui.targetDepthLabel, `达标幅度 (${state.analyzer.exercise.full}°)`);
+  const progress = Math.min(100, snapshot.progress || 0);
+  setStyle(ui.depthBar, 'width', `${progress}%`);
+  setClass(ui.depthBar, `depth-meter-bar ${progress >= 100 ? 'bar-achieved' : (progress > 20 ? 'bar-active' : '')}`);
+  setText(ui.depthPercent, `${snapshot.progress || 0}%`);
+  setText(ui.activeSideBadge, snapshot.side ? `● ${snapshot.side}跟踪` : '待识别肢体');
+  setClass(ui.activeSideBadge, `side-badge ${snapshot.side ? 'side-active' : ''}`);
+  if (state.mode) setText(ui.stageHint, state.paused ? '训练已暂停（按空格键继续）' :
+    snapshot.visible ? `${snapshot.side || ''}${EXERCISES[state.exercise].joint}估计角度 ${snapshot.angle}° · ${snapshot.phase}` : '关键点不可见 · 请重新调整机位');
 }
+
 function inform(message, kind = 'info') {
   const feedback = document.querySelector('#feedbackText');
   if (feedback) { feedback.textContent = message; feedback.dataset.kind = kind; }
@@ -300,14 +305,17 @@ function renderFrame(now) {
     state.fpsLastTime = now;
     const perfTag = document.querySelector('#perfIndicator');
     if (perfTag && state.mode) {
-      const modeLabel = state.mode === 'demo' ? '演示' : 'AI推理';
-      perfTag.textContent = `渲染 ${state.renderFps} FPS · ${modeLabel} ${state.inferFps} FPS · 耗时 ${state.latencyMs ? state.latencyMs + 'ms' : '0ms'}`;
+      perfTag.textContent = state.mode === 'demo'
+        ? `渲染 ${state.renderFps} FPS · 模拟（非 AI）`
+        : `渲染 ${state.renderFps} FPS · AI推理 ${state.inferFps} FPS · 耗时 ${state.latencyMs ? state.latencyMs + 'ms' : '0ms'}`;
     }
   }
 
-  if (now - state.lastFrame < 65) return;
+  // Demo has no model inference: draw at the display refresh rate.
+  // Keep the 65ms inference throttle for camera and local video modes.
+  if (state.mode !== 'demo' && now - state.lastFrame < 65) return;
   state.lastFrame = now;
-  const canvas = document.querySelector('#poseCanvas');
+  const canvas = getTrainingNodes()?.poseCanvas;
   if (!canvas) return;
 
   if (state.mode === 'demo') {
@@ -319,9 +327,11 @@ function renderFrame(now) {
     drawPose(canvas, landmarks, {
       width: 960, height: 540,
       label: 'SYNTHETIC POSE · NOT AI',
+      demoExercise: state.exercise,
       highlightJoints: state.currentHighlightJoints,
       angle: snapshot?.angle ?? null,
-      depthProgress: snapshot?.progress ?? 0
+      depthProgress: snapshot?.progress ?? 0,
+      time: elapsed
     });
   } else if ((state.mode === 'camera' || state.mode === 'video') && state.detector) {
     const video = document.querySelector('#liveVideo');
