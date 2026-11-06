@@ -272,14 +272,32 @@ function refreshModeUI() {
     startVideoBtn.innerHTML = state.mode === 'video' && !state.modelReady ? '⏳ 正在载入…' : '🎞 &nbsp; 本地视频评测';
   }
   const demoStdBtn = document.querySelector('#startDemoStandard');
-  if (demoStdBtn) demoStdBtn.disabled = !!state.mode;
+  if (demoStdBtn) {
+    demoStdBtn.disabled = state.mode === 'camera' || state.mode === 'video';
+    const isStdActive = state.mode === 'demo' && state.demoType === 'standard';
+    demoStdBtn.classList.toggle('active', isStdActive);
+    demoStdBtn.innerHTML = isStdActive ? '⏹ &nbsp; 结束示范' : '▷ &nbsp; 正确姿势示范';
+    demoStdBtn.title = isStdActive ? '点击结束当前标准示范' : '展示 100% 达标深度的标准动作规范示范';
+  }
   const demoFaultBtn = document.querySelector('#startDemoFault');
-  if (demoFaultBtn) demoFaultBtn.disabled = !!state.mode;
+  if (demoFaultBtn) {
+    demoFaultBtn.disabled = state.mode === 'camera' || state.mode === 'video';
+    const isFaultActive = state.mode === 'demo' && state.demoType === 'fault';
+    demoFaultBtn.classList.toggle('active-fault', isFaultActive);
+    demoFaultBtn.innerHTML = isFaultActive ? '⏹ &nbsp; 结束演示' : '⚠ &nbsp; 常见错误演示';
+    demoFaultBtn.title = isFaultActive ? '点击结束当前错误演示' : '展示常见代偿动作与 AI 警报判定';
+  }
   const oldDemoBtn = document.querySelector('#startDemo');
   if (oldDemoBtn) oldDemoBtn.disabled = !!state.mode;
   document.querySelector('#pauseBtn').disabled = !state.mode;
   document.querySelector('#pauseBtn').textContent = state.paused ? '继续' : '暂停';
-  document.querySelector('#endBtn').disabled = !state.mode;
+  const endBtn = document.querySelector('#endBtn');
+  if (endBtn) {
+    endBtn.disabled = !state.mode;
+    endBtn.textContent = state.mode === 'demo'
+      ? (state.demoType === 'fault' ? '结束演示' : '结束示范')
+      : '结束训练';
+  }
   document.querySelectorAll('[data-exercise]').forEach(b=>b.disabled=!!state.mode);
   document.querySelector('#facingSelect').disabled = !!state.mode;
   const diffSelect = document.querySelector('#difficultySelect');
@@ -762,6 +780,20 @@ document.addEventListener('click', async event => {
     case 'start-demo': await begin('demo', null, { demoType: state.demoType || 'standard' }); break;
     case 'start-demo-standard': {
       if (state.mode === 'demo') {
+        if (state.demoType === 'standard') {
+          // Already running standard demo -> clicking it cleanly ends demonstration
+          stopRealtime();
+          state.mode = null;
+          state.paused = false;
+          state.analyzer?.resetIncompleteRep();
+          refreshModeUI();
+          updateTrainingUI();
+          inform('已结束动作示范。点击下方「启动 AI 摄像头」或「本地视频评测」可开始正式训练。');
+          modelMessage('动作示范已结束。请选择启动 AI 摄像头或本地视频进行正式训练。', 'info');
+          drawIdle(document.querySelector('#poseCanvas'));
+          toast('已结束姿势示范');
+          break;
+        }
         state.demoType = 'standard';
         state.analyzer?.resetIncompleteRep();
         state.startPerf = performance.now();
@@ -779,6 +811,20 @@ document.addEventListener('click', async event => {
     }
     case 'start-demo-fault': {
       if (state.mode === 'demo') {
+        if (state.demoType === 'fault') {
+          // Already running fault demo -> clicking it cleanly ends demonstration
+          stopRealtime();
+          state.mode = null;
+          state.paused = false;
+          state.analyzer?.resetIncompleteRep();
+          refreshModeUI();
+          updateTrainingUI();
+          inform('已结束错误演示。点击下方「启动 AI 摄像头」或「本地视频评测」可开始正式训练。');
+          modelMessage('常见错误演示已结束。请选择启动 AI 摄像头或本地视频进行正式训练。', 'info');
+          drawIdle(document.querySelector('#poseCanvas'));
+          toast('已结束错误演示');
+          break;
+        }
         state.demoType = 'fault';
         state.analyzer?.resetIncompleteRep();
         state.startPerf = performance.now();
@@ -848,6 +894,20 @@ document.addEventListener('click', async event => {
     }
     case 'pause': togglePause(); break;
     case 'end': {
+      if (state.mode === 'demo') {
+        const label = state.demoType === 'fault' ? '错误演示' : '动作示范';
+        stopRealtime();
+        state.mode = null;
+        state.paused = false;
+        state.analyzer?.resetIncompleteRep();
+        refreshModeUI();
+        updateTrainingUI();
+        inform(`已结束${label}。点击下方「启动 AI 摄像头」或「本地视频评测」可开始正式训练。`);
+        modelMessage(`${label}已结束。请选择启动 AI 摄像头或本地视频进行正式训练。`, 'info');
+        drawIdle(document.querySelector('#poseCanvas'));
+        toast(`已结束${label}`);
+        break;
+      }
       let manualCount = null;
       try {
         const input = window.prompt('本次训练结束。如需记录课程对照实验，请输入人工核验的实际有效达标次数（必须为非负整数，留空或取消则不记录）：', '');

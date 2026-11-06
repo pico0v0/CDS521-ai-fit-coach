@@ -394,6 +394,19 @@ test("R-003 integration: begin('video') path strictly verifies frame 0 single tr
     stopRealtime();
     state.mode = null;
 
+    // Subtest 7: Demo demonstration mode is purely instructional; clean exit resets state without fake workout session
+    await begin('demo', null, { demoType: 'standard' });
+    assert.equal(state.mode, 'demo');
+    assert.equal(state.demoType, 'standard');
+    assert.equal(state.running, true);
+    stopRealtime();
+    state.mode = null;
+    state.paused = false;
+    state.analyzer.resetIncompleteRep();
+    assert.equal(state.mode, null, 'Demo exit cleanly returns state.mode to null');
+    assert.equal(state.analyzer.inRep, false, 'Incomplete rep state is reset on demo exit');
+    assert.equal(state.running, false, 'Running is cleanly stopped');
+
   } finally {
     if (existsSync(tempPath)) unlinkSync(tempPath);
   }
