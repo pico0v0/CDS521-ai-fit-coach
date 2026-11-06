@@ -26,7 +26,7 @@ test('low visibility and missing landmarks do not produce fake measurements', ()
   assert.equal(extractJointAngle([], 'curl'),null);
 });
 
-for(const id of ['squat','curl','jumping_jack']) {
+for(const id of ['squat','curl','jumping_jack','lunge','pushup']) {
   test(`${id}: counts 3 complete and flags one shallow in 4 synthetic cycles`, () => {
     const analyzer=new ExerciseAnalyzer(id);
     const events=[];
@@ -42,7 +42,7 @@ for(const id of ['squat','curl','jumping_jack']) {
   });
 }
 
-for(const id of ['squat','curl']) {
+for(const id of ['squat','curl','lunge','pushup']) {
   test(`${id}: static pose never counts`, () => {
     const analyzer=new ExerciseAnalyzer(id);
     for(let t=0;t<5000;t+=100) analyzer.update({angle:175,visible:true,timestamp:t+1});
@@ -182,6 +182,22 @@ test('checkPostureFault detects arm asymmetry in jumping jacks', () => {
   assert.ok(fault);
   assert.equal(fault.code, 'arm_asymmetry');
   assert.match(fault.message, /对称舒展/);
+});
+
+test('checkPostureFault detects knee_over_toes during lunge', () => {
+  const faultPose = simulatePose(2350, 'lunge', { mode: 'fault', faultIndex: 0 });
+  const fault = checkPostureFault(faultPose, 'lunge', '左侧');
+  assert.ok(fault);
+  assert.equal(fault.code, 'knee_over_toes');
+  assert.match(fault.message, /膝盖|脚尖|中立/);
+});
+
+test('checkPostureFault detects sagging_hips during pushup', () => {
+  const faultPose = simulatePose(2350, 'pushup', { mode: 'fault', faultIndex: 0 });
+  const fault = checkPostureFault(faultPose, 'pushup', '左侧');
+  assert.ok(fault);
+  assert.equal(fault.code, 'sagging_hips');
+  assert.match(fault.message, /塌腰|头肩髋踝/);
 });
 
 test('analyzer supports difficulty presets and target rep goal achievement', () => {
@@ -393,7 +409,7 @@ test('R-009 regression: 1-to-1 event-level shallow rep matching accurately detec
 });
 
 test('EXERCISE_GUIDES schema: all exercises have standard cues and detailed faults breakdown', () => {
-  for (const id of ['squat', 'curl', 'jumping_jack']) {
+  for (const id of ['squat', 'curl', 'jumping_jack', 'lunge', 'pushup']) {
     const guide = EXERCISE_GUIDES[id];
     assert.ok(guide, `Guide exists for ${id}`);
     assert.ok(guide.standard.title && guide.standard.summary, `Standard metadata exists for ${id}`);
@@ -412,7 +428,7 @@ test('EXERCISE_GUIDES schema: all exercises have standard cues and detailed faul
 });
 
 test('simulatePose in standard mode produces 100% full reps without shallow reps', () => {
-  for (const id of ['squat', 'curl', 'jumping_jack']) {
+  for (const id of ['squat', 'curl', 'jumping_jack', 'lunge', 'pushup']) {
     const analyzer = new ExerciseAnalyzer(id);
     for (let t = 0; t < 4700 * 4; t += 100) {
       const pose = simulatePose(t, id, { mode: 'standard' });
@@ -444,6 +460,36 @@ test('simulatePose in fault mode triggers designated biomechanical fault', () =>
   const curlSwingPose = simulatePose(2350, 'curl', { mode: 'fault', faultIndex: 0 });
   const swingFault = checkPostureFault(curlSwingPose, 'curl', '左侧');
   assert.equal(swingFault?.code, 'arm_swing', 'Curl fault 0 triggers arm_swing');
+
+  // Lunge fault 0: knee over toes triggers checkPostureFault
+  const lungeKneePose = simulatePose(2350, 'lunge', { mode: 'fault', faultIndex: 0 });
+  const lungeFault = checkPostureFault(lungeKneePose, 'lunge', '左侧');
+  assert.equal(lungeFault?.code, 'knee_over_toes', 'Lunge fault 0 triggers knee_over_toes');
+
+  // Lunge fault 1: shallow lunge flags partial reps
+  const lungeAnalyzer = new ExerciseAnalyzer('lunge');
+  for (let t = 0; t < 4700 * 2; t += 100) {
+    const pose = simulatePose(t, 'lunge', { mode: 'fault', faultIndex: 1 });
+    const joint = extractJointAngle(pose, 'lunge');
+    lungeAnalyzer.update({ angle: joint?.angle, visible: !!joint, timestamp: t + 1, landmarks: pose });
+  }
+  assert.equal(lungeAnalyzer.count, 0, 'Lunge fault 1 has 0 full reps');
+  assert.equal(lungeAnalyzer.partialCount, 2, 'Lunge fault 1 flags both cycles as shallow reps');
+
+  // Pushup fault 0: sagging hips triggers checkPostureFault
+  const pushupSagPose = simulatePose(2350, 'pushup', { mode: 'fault', faultIndex: 0 });
+  const pushupFault = checkPostureFault(pushupSagPose, 'pushup', '左侧');
+  assert.equal(pushupFault?.code, 'sagging_hips', 'Pushup fault 0 triggers sagging_hips');
+
+  // Pushup fault 1: shallow pushup flags partial reps
+  const pushupAnalyzer = new ExerciseAnalyzer('pushup');
+  for (let t = 0; t < 4700 * 2; t += 100) {
+    const pose = simulatePose(t, 'pushup', { mode: 'fault', faultIndex: 1 });
+    const joint = extractJointAngle(pose, 'pushup');
+    pushupAnalyzer.update({ angle: joint?.angle, visible: !!joint, timestamp: t + 1, landmarks: pose });
+  }
+  assert.equal(pushupAnalyzer.count, 0, 'Pushup fault 1 has 0 full reps');
+  assert.equal(pushupAnalyzer.partialCount, 2, 'Pushup fault 1 flags both cycles as shallow reps');
 });
 
 test('GEO-01 & GEO-02 regression: squat pixel Euclidean geometry, rigid bone lengths and double-parallel law', () => {
@@ -507,7 +553,7 @@ test('MODE-01 regression: jumping jack fault 1 (arm_asymmetry) preserves full am
 });
 
 test('MODE-02 regression: 3x3 difficulty matrix in standard demonstration achieves 100% full reps without shallow reps', () => {
-  const exercises = ['squat', 'curl', 'jumping_jack'];
+  const exercises = ['squat', 'curl', 'jumping_jack', 'lunge', 'pushup'];
   const difficulties = ['beginner', 'standard', 'advanced'];
 
   for (const difficulty of difficulties) {
@@ -622,6 +668,61 @@ test('REFINE-03: error peaks and alerts are continuous, transient, and repeat at
     for(const i of [11,13,15,23,25,27]) {
       assert.equal(peak[i].x,repeated[i].x);
       assert.equal(peak[i].y,repeated[i].y);
+    }
+  }
+});
+
+test('LUNGE & PUSHUP-RIGID: arms, legs, torso retain exact Euclidean pixel lengths across all frames', () => {
+  const W = 960, H = 540;
+  const dist = (p, i, j) => Math.hypot((p[i].x - p[j].x) * W, (p[i].y - p[j].y) * H);
+
+  const lungeBones = [
+    [23, 25, 113.4, 'left thigh'],
+    [25, 27, 118.8, 'left shin'],
+    [11, 23, 124.2, 'torso'],
+    [11, 13, 76.0, 'upper arm'],
+    [13, 15, 76.0, 'forearm'],
+    [24, 26, 113.4, 'right thigh'],
+    [26, 28, 118.8, 'right shin']
+  ];
+
+  for (const mode of ['standard', 'fault']) {
+    for (let ms = 0; ms <= 4700; ms += 50) {
+      const pose = simulatePose(ms, 'lunge', { mode, faultIndex: 0 });
+      for (const [i, j, expected, name] of lungeBones) {
+        const d = dist(pose, i, j);
+        assert.ok(Math.abs(d - expected) < 1e-6, `Lunge ${name} at ${ms}ms has length ${d}, expected ${expected}`);
+      }
+    }
+  }
+
+  const pushupBones = [
+    [11, 13, 92.0, 'upper arm'],
+    [13, 15, 88.0, 'forearm'],
+    [11, 23, 145.0, 'torso'],
+    [23, 25, 115.0, 'thigh'],
+    [25, 27, 110.0, 'shin']
+  ];
+
+  for (const mode of ['standard', 'fault']) {
+    for (let ms = 0; ms <= 4700; ms += 50) {
+      const pose = simulatePose(ms, 'pushup', { mode, faultIndex: 0 });
+      for (const [i, j, expected, name] of pushupBones) {
+        const d = dist(pose, i, j);
+        assert.ok(Math.abs(d - expected) < 1e-6, `Pushup ${name} at ${ms}ms has length ${d}, expected ${expected}`);
+      }
+    }
+  }
+});
+
+test('LUNGE & PUSHUP-ANGLE: rendered pixel joint angles match requested and extracted angles', () => {
+  for (const ex of ['lunge', 'pushup']) {
+    for (let ms = 0; ms <= 4700; ms += 100) {
+      const pose = simulatePose(ms, ex, { mode: 'standard' });
+      const target = simulatedAngle(ms, ex, { mode: 'standard' });
+      const joint = extractJointAngle(pose, ex);
+      assert.ok(joint, `${ex} must have joint angle at ${ms}ms`);
+      assert.ok(Math.abs(joint.angle - target) < 1e-6, `${ex} angle at ${ms}ms: ${joint.angle} vs ${target}`);
     }
   }
 });

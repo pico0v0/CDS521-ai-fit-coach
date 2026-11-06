@@ -7,7 +7,7 @@ export function loadSessions(storage = globalThis.localStorage) {
     if (!Array.isArray(records)) return [];
     return records.filter(r => typeof r === 'object' && r &&
       Number.isFinite(r.count) && Number.isFinite(r.durationSeconds) &&
-      typeof r.id === 'string' && ['squat', 'curl', 'jumping_jack'].includes(r.exercise))
+      typeof r.id === 'string' && ['squat', 'curl', 'jumping_jack', 'lunge', 'pushup'].includes(r.exercise))
       .slice(0, MAX);
   } catch { return []; }
 }
@@ -33,6 +33,12 @@ export function makeAdvice(record, goal, fatigue) {
   }
   if (record.faultCounts?.arm_asymmetry > 0) {
     faultNotes.push('训练中检测到双臂起落不对称，建议起跳时控制双臂同步向上舒展');
+  }
+  if (record.faultCounts?.knee_over_toes > 0) {
+    faultNotes.push('训练中检测到弓步前膝过度前冲，建议加大步幅并将重心垂直下沉');
+  }
+  if (record.faultCounts?.sagging_hips > 0) {
+    faultNotes.push('训练中检测到俯卧撑塌腰或臀部折角，建议紧绷核心让头肩髋踝呈一直线');
   }
 
   if (record.partialCount > record.count && record.partialCount > 0) {
@@ -103,7 +109,8 @@ export function computeMaeStats(sessions = []) {
 }
 
 export function exportSessionsCSV(sessions) {
-  const headers = ['ID', '训练时间', '动作名称', '动作代码', '运行模式', '跟踪有效帧数', '系统有效次数', '未达幅度次数', '人工核验达标次数', '绝对误差', '计入真实MAE', '排除原因', '躯干前倾次数', '大臂借力次数', '双臂不对称次数', '训练时长(秒)', '训练目标', '主观疲劳'];
+  const headers = ['ID', '训练时间', '动作名称', '动作代码', '运行模式', '跟踪有效帧数', '系统有效次数', '未达幅度次数', '人工核验达标次数', '绝对误差', '计入真实MAE', '排除原因', '躯干前倾次数', '大臂借力次数', '双臂不对称次数', '膝盖前冲次数', '塌腰代偿次数', '训练时长(秒)', '训练目标', '主观疲劳'];
+  const nameMap = { squat: '深蹲', curl: '哑铃弯举', jumping_jack: '开合跳', lunge: '弓步', pushup: '俯卧撑' };
   const rows = (sessions || []).map(s => {
     const verifiedError = deriveVerifiedAbsError(s);
     const hasManual = typeof s.manualCount === 'number' && Number.isInteger(s.manualCount) && s.manualCount >= 0;
@@ -111,7 +118,7 @@ export function exportSessionsCSV(sessions) {
     return [
       s.id,
       s.startedAt,
-      s.exercise === 'squat' ? '深蹲' : (s.exercise === 'curl' ? '哑铃弯举' : '开合跳'),
+      nameMap[s.exercise] || s.exercise,
       s.exercise,
       s.mode === 'demo' ? '模拟演示' : (s.mode === 'video' ? '本地视频AI' : '真实摄像头'),
       s.trackedFrames || 0,
@@ -124,6 +131,8 @@ export function exportSessionsCSV(sessions) {
       s.faultCounts?.trunk_lean || 0,
       s.faultCounts?.arm_swing || 0,
       s.faultCounts?.arm_asymmetry || 0,
+      s.faultCounts?.knee_over_toes || 0,
+      s.faultCounts?.sagging_hips || 0,
       s.durationSeconds,
       s.goal || 'habit',
       s.fatigue || 'normal'

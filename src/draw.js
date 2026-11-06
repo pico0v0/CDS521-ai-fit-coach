@@ -89,11 +89,15 @@ function displayPose(landmarks, exercise) {
     for (const i of [12, 14, 16, 24, 26, 28, 30]) {
       if (has(i)) move(i, pose[i].x - 0.055, pose[i].y);
     }
-  } else if (exercise === 'squat') {
+  } else if (exercise === 'squat' || exercise === 'lunge') {
     // Spread the far-side silhouette without changing either side's lengths.
     // Old independent offsets altered the shin and upper-arm pixel lengths.
     for (const i of [12, 14, 16, 24, 26, 28, 30, 32]) {
       if (has(i)) move(i, pose[i].x + 0.028, pose[i].y);
+    }
+  } else if (exercise === 'pushup') {
+    for (const i of [12, 14, 16, 24, 26, 28, 30, 32]) {
+      if (has(i)) move(i, pose[i].x - 0.035, pose[i].y);
     }
   }
   return pose;
@@ -118,7 +122,9 @@ function drawDemoSkeleton(ctx, landmarks, exercise, options) {
   // the platform jumped with the figure.
   const footY = exercise === 'jumping_jack'
     ? height * (512 / 540)
-    : Math.max(...[27,28].filter(has).map(i => pts[i].y * height), height * 0.87) + 13;
+    : (exercise === 'pushup'
+      ? height * (475 / 540)
+      : Math.max(...[27,28].filter(has).map(i => pts[i].y * height), height * 0.87) + 13);
   ctx.save();
   const groundPulse = 0.5 + 0.5 * Math.sin(time * BREATH_SPEED);
   ctx.lineWidth = 1;

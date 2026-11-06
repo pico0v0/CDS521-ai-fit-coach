@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>开合跳 · 四模式运动学精修预览</title>
+<title>动作姿态与运动学对照实验室</title>
 <style>
 :root{color-scheme:dark;--bg:#09131b;--card:#10232f;--edge:#254551;--mint:#91ead4;--text:#eaf6f5;--mute:#9ab2b8;--amber:#ffd18c}
 *{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:radial-gradient(circle at 50% -10%,#173a43 0%,var(--bg) 58%);color:var(--text)}
@@ -17,11 +17,19 @@ select,button,input{accent-color:#9ae7c3}select,button{color:var(--text);backgro
 <body>
 <div class="wrap">
 <div class="tag">AI FIT COACH · SKELETON MOTION LAB</div>
-<h1>开合跳 · 正确 / 错误姿势运动学对照</h1>
-<p class="desc">960×540 像素坐标约束 · 全骨段长度固定 · 双臂实际夹角与分析器统一 · 每周期 4700ms。左侧是同步起跳的正确动作，右侧选择三种错误。此页绘制合成骨架，非真人追踪结果。</p>
+<h1 id="pageTitle">动作姿态与运动学对照</h1>
+<p class="desc" id="pageDesc">960×540 像素坐标约束 · 全骨段长度固定 · 关节角与分析器严格统一 · 每周期 4700ms。左侧是标准正确动作，右侧选择典型错误对照。</p>
 <div class="toolbar">
+  <label for="exerciseSelect">训练动作</label>
+  <select id="exerciseSelect">
+    <option value="jumping_jack" selected>开合跳 (JUMPING JACK)</option>
+    <option value="lunge">弓步 (LUNGE)</option>
+    <option value="pushup">俯卧撑 (PUSH-UP)</option>
+    <option value="squat">深蹲 (SQUAT)</option>
+    <option value="curl">弯举 (CURL)</option>
+  </select>
   <label for="variant">错误模式</label>
-  <select id="variant"><option value="0">错误 01 · 手腿脱节</option><option value="1">错误 02 · 双臂不对称</option><option value="2">错误 03 · 腿未展开</option></select>
+  <select id="variant"></select>
   <label for="difficulty">难度</label>
   <select id="difficulty"><option value="standard">标准</option><option value="beginner">初学</option><option value="advanced">进阶</option></select>
   <button id="play" class="primary">⏸ 暂停</button><button id="reset">↺ 重播</button>
@@ -29,51 +37,73 @@ select,button,input{accent-color:#9ae7c3}select,button{color:var(--text);backgro
   <span id="clock">0.00 / 4.70s</span>
 </div>
 <div class="grid">
-  <section class="pane"><div class="paneHead"><strong>✓ 正确示范</strong><span>四肢同步 · 起跳腾空 · 屈膝缓冲</span></div><canvas id="good" width="960" height="540"></canvas><div class="metrics"><div class="metric"><div class="key">左臂展角</div><div class="value" id="goodArm">—</div></div><div class="metric"><div class="key">双脚 / 髋距</div><div class="value" id="goodLeg">—</div></div><div class="metric"><div class="key">足踝离地</div><div class="value" id="goodLift">—</div></div></div></section>
-  <section class="pane err"><div class="paneHead"><strong id="faultName">! 手腿脱节</strong><span>同一时间轴 · 可逐帧对照</span></div><canvas id="fault" width="960" height="540"></canvas><div class="metrics"><div class="metric"><div class="key">左右臂差值</div><div class="value" id="badArm">—</div></div><div class="metric"><div class="key">双脚 / 髋距</div><div class="value" id="badLeg">—</div></div><div class="metric"><div class="key">瞬时告警</div><div class="value" id="alarm">—</div></div></div></section>
+  <section class="pane"><div class="paneHead"><strong>✓ 正确示范</strong><span id="goodSub">标准动作 · 轨迹平稳</span></div><canvas id="good" width="960" height="540"></canvas><div class="metrics"><div class="metric"><div class="key">关键角 / 指标</div><div class="value" id="goodArm">—</div></div><div class="metric"><div class="key">动作完成度</div><div class="value" id="goodLeg">—</div></div><div class="metric"><div class="key">辅助位移</div><div class="value" id="goodLift">—</div></div></div></section>
+  <section class="pane err"><div class="paneHead"><strong id="faultName">! 姿态错误</strong><span>同一时间轴 · 可逐帧对照</span></div><canvas id="fault" width="960" height="540"></canvas><div class="metrics"><div class="metric"><div class="key">关键角 / 指标</div><div class="value" id="badArm">—</div></div><div class="metric"><div class="key">动作完成度</div><div class="value" id="badLeg">—</div></div><div class="metric"><div class="key">AI 实时告警</div><div class="value" id="alarm">—</div></div></div></section>
 </div>
-<div class="foot"><b>参数校验</b>上臂 76px · 前臂 76px · 大腿 101px · 小腿 110px · 躯干 113.64px · 误差仅浮点舍入。<b>判定</b>全周期分析器可识别三类错误并拦截不合格次数。</div>
-<div class="note">说明：开合跳的“腿始终不展开”和“腿展开滞后”在某个单独的高举手臂帧可能具有相同的外形，因此严格依靠整轮脚踝轨迹作最终错误分类。点击暂停后拖动时间条可比较关节运动轨迹。</div>
+<div class="foot" id="footInfo"><b>参数校验</b>960×540 刚体不变性校验通过。<b>判定</b>状态机与姿态核验模块无缝对接。</div>
 </div>
 <script type="module">
 import {simulatePose,simulatedAngle} from './src/simulator.js';
 import {drawPose} from './src/draw.js';
-import {checkPostureFault,getLegSpreadRatio,angleDegrees,toPixelPoint} from './src/exercise.js';
+import {checkPostureFault,extractJointAngle,getLegSpreadRatio,angleDegrees,toPixelPoint} from './src/exercise.js';
 const $=id=>document.getElementById(id);
-const names=['手腿脱节','双臂不对称','腿未展开'];
+const FAULTS={
+  jumping_jack:['手腿脱节','双臂不对称','腿未展开'],
+  lunge:['前膝超脚尖 / 躯干前扑','幅度不足 (浅弓步)'],
+  pushup:['腰腹塌陷 / 撅臀折角','幅度不足 (半程推起)'],
+  squat:['躯干过度前倾','深度不足 (浅蹲)'],
+  curl:['大臂前后借力','幅度不足 (半程弯举)']
+};
 let clockMs=0,playing=true,last=performance.now();
-const wristAngle=(p,left)=>angleDegrees(...(left?[23,11,15]:[24,12,16]).map(i=>toPixelPoint(p[i])));
-const opts=(mode,faultIndex)=>({mode,faultIndex,difficulty:$('difficulty').value});
-function render(){
- const ix=Number($('variant').value);
- const normal=simulatePose(clockMs,'jumping_jack',opts('standard',0));
- const faulty=simulatePose(clockMs,'jumping_jack',opts('fault',ix));
- for(const [id,p,kind] of [['good',normal,'standard'],['fault',faulty,'fault']]){
-   const ang=(wristAngle(p,true)+wristAngle(p,false))/2;
-   drawPose($(id),p,{demoExercise:'jumping_jack',width:960,height:540,angle:ang,highlightJoints:[23,11,15],
-     depthProgress:Math.max(0,Math.min(120,100*(ang-35)/95)),time:clockMs,
-     label:kind==='standard'?'SYNTHETIC MOTION · STANDARD':'SYNTHETIC MOTION · INTENTIONAL FAULT'});
- }
- $('goodArm').textContent=`${wristAngle(normal,true).toFixed(1)}°`;
- $('goodLeg').textContent=`${getLegSpreadRatio(normal).toFixed(2)}×`;
- $('goodLift').textContent=`${Math.max(0,(494-normal[27].y*540)).toFixed(1)} px`;
- $('badArm').textContent=`${Math.abs(wristAngle(faulty,true)-wristAngle(faulty,false)).toFixed(1)}°`;
- $('badLeg').textContent=`${getLegSpreadRatio(faulty).toFixed(2)}×`;
- const alarm=checkPostureFault(faulty,'jumping_jack');
- $('alarm').textContent=alarm?.code??'—';
- $('faultName').textContent=`! 错误 0${ix+1} · ${names[ix]}`;
- $('scrub').value=clockMs;
- $('clock').textContent=`${(clockMs/1000).toFixed(2)} / 4.70s`;
+
+function updateVariants(){
+  const ex=$('exerciseSelect').value;
+  const list=FAULTS[ex]||FAULTS.jumping_jack;
+  $('variant').innerHTML=list.map((name,i)=>`<option value="${i}">错误 0${i+1} · ${name}</option>`).join('');
+  $('pageTitle').textContent=`${ex==='lunge'?'弓步':(ex==='pushup'?'俯卧撑':(ex==='squat'?'深蹲':(ex==='curl'?'弯举':'开合跳')))} · 正确 / 错误姿势运动学对照`;
 }
+
+function render(){
+  const ex=$('exerciseSelect').value;
+  const ix=Number($('variant').value)||0;
+  const diff=$('difficulty').value;
+  const normal=simulatePose(clockMs,ex,{mode:'standard',difficulty:diff});
+  const faulty=simulatePose(clockMs,ex,{mode:'fault',faultIndex:ix,difficulty:diff});
+
+  const normAngleObj=extractJointAngle(normal,ex);
+  const faultAngleObj=extractJointAngle(faulty,ex);
+  const normAng=normAngleObj?.angle??simulatedAngle(clockMs,ex,{mode:'standard',difficulty:diff});
+  const faultAng=faultAngleObj?.angle??simulatedAngle(clockMs,ex,{mode:'fault',faultIndex:ix,difficulty:diff});
+
+  drawPose($('good'),normal,{demoExercise:ex,width:960,height:540,angle:normAng,time:clockMs,
+    label:'SYNTHETIC MOTION · STANDARD'});
+  drawPose($('fault'),faulty,{demoExercise:ex,width:960,height:540,angle:faultAng,time:clockMs,
+    label:'SYNTHETIC MOTION · INTENTIONAL FAULT'});
+
+  $('goodArm').textContent=`${normAng.toFixed(1)}°`;
+  $('badArm').textContent=`${faultAng.toFixed(1)}°`;
+  const legRatio=getLegSpreadRatio(normal);
+  $('goodLeg').textContent=legRatio!==null?`${legRatio.toFixed(2)}×`:`${normAngleObj?.side||'--'}`;
+  $('badLeg').textContent=faultAngleObj?.side||'--';
+
+  const alarm=checkPostureFault(faulty,ex,'左侧');
+  $('alarm').textContent=alarm?.code||'—';
+
+  const faultList=FAULTS[ex]||FAULTS.jumping_jack;
+  $('faultName').textContent=`! 错误 0${ix+1} · ${faultList[ix]||'常见错误'}`;
+  $('scrub').value=clockMs;
+  $('clock').textContent=`${(clockMs/1000).toFixed(2)} / 4.70s`;
+}
+
 function tick(now){if(playing)clockMs=(clockMs+Math.min(50,now-last))%4700;last=now;render();requestAnimationFrame(tick)}
-$('variant').onchange=()=>{clockMs=0;render()};$('difficulty').onchange=()=>{clockMs=0;render()};
+$('exerciseSelect').onchange=()=>{updateVariants();clockMs=0;render();};
+$('variant').onchange=()=>{clockMs=0;render()};
+$('difficulty').onchange=()=>{clockMs=0;render()};
 $('play').onclick=()=>{playing=!playing;$('play').textContent=playing?'⏸ 暂停':'▶ 播放'};
 $('reset').onclick=()=>{clockMs=0;render()};
 $('scrub').oninput=()=>{clockMs=Number($('scrub').value);playing=false;$('play').textContent='▶ 播放';render()};
-// Optional screenshot frame selection for a browser-based QA runner.
-const q=new URLSearchParams(location.search);
-if(q.has('fault'))$('variant').value=q.get('fault');
-if(q.has('time')){playing=false;clockMs=Number(q.get('time'))%4700;$('play').textContent='▶ 播放';}
+
+updateVariants();
 requestAnimationFrame(tick);
 </script>
 </body>

@@ -15,12 +15,22 @@ export const EXERCISES = Object.freeze({
     guidance: '正对摄像头，全身入镜。起跳时双臂向上舒展，落地时双臂与双腿自然收回。',
     extended: 35, started: 55, full: 130, direction: 'expand',
   },
+  lunge: {
+    id: 'lunge', name: '弓步', english: 'LUNGE', joint: '前膝关节', camera: '侧面机位 · 全身入镜',
+    guidance: '侧身对准镜头，双脚前后开立。下蹲时保持躯干笔直中立，前膝屈曲至大腿近水平。',
+    extended: 160, started: 145, full: 105, direction: 'bend',
+  },
+  pushup: {
+    id: 'pushup', name: '俯卧撑', english: 'PUSH-UP', joint: '肘关节', camera: '侧面机位 · 全身俯卧入镜',
+    guidance: '侧身俯卧面向镜头，从头到脚跟呈一条直线。屈臂下压至胸口接近地面，伸臂撑起。',
+    extended: 160, started: 142, full: 90, direction: 'bend',
+  },
 });
 
 export const DIFFICULTY_PRESETS = Object.freeze({
-  beginner: { name: '初学', squat: 122, curl: 80, jumping_jack: 115 },
-  standard: { name: '标准', squat: 110, curl: 65, jumping_jack: 130 },
-  advanced: { name: '进阶', squat: 95, curl: 50, jumping_jack: 145 },
+  beginner: { name: '初学', squat: 122, curl: 80, jumping_jack: 115, lunge: 118, pushup: 105 },
+  standard: { name: '标准', squat: 110, curl: 65, jumping_jack: 130, lunge: 105, pushup: 90 },
+  advanced: { name: '进阶', squat: 95, curl: 50, jumping_jack: 145, lunge: 92, pushup: 75 },
 });
 
 export const EXERCISE_GUIDES = Object.freeze({
@@ -132,6 +142,72 @@ export const EXERCISE_GUIDES = Object.freeze({
         aiRule: 'AI 下肢位移核验 peakLegSpread 达标失败，判定为伪造开合跳直接拦截（不计数）。'
       }
     ]
+  },
+  lunge: {
+    standard: {
+      title: '弓步 · 标准动作要领示范',
+      summary: '躯干垂直中立、前后双直角、前膝不冲脚尖、后膝悬垂点地。',
+      cues: [
+        { label: '双腿前后直角', desc: '下潜至前腿大腿平行地面、后腿膝关节微屈悬垂，前后双膝各呈约 90° 夹角。' },
+        { label: '躯干笔直垂直', desc: '脊柱保持中立向上延伸，核心肌群收紧，严禁前扑折腰或向后仰腹。' },
+        { label: '重心居中下沉', desc: '重心垂线平稳落在双脚跨距正中，前脚全脚掌抓地发力推起起立。' }
+      ]
+    },
+    faults: [
+      {
+        id: 'knee_over_toes',
+        tag: '常见错误 01',
+        name: '前膝过度前冲（前移超脚尖代偿）',
+        shortName: '膝盖前冲',
+        where: '下蹲时膝盖大幅度往前顶超过脚尖，脚后跟离地，躯干严重向前折扑。',
+        why: '髌骨关节受力过载，髌腱承受巨大的撕裂拉力，易诱发髌下脂肪垫炎或膝前绞锁疼痛。',
+        correction: '加大双脚前后步幅，下蹲时将重心垂直向下坐而非向前跪，使前侧小腿近乎垂直于地面。',
+        aiRule: 'AI 检测到前膝水平位移超出脚尖过多或躯干前倾角 > 35°，实时触发 knee_over_toes 姿态警报。'
+      },
+      {
+        id: 'shallow_lunge',
+        tag: '常见错误 02',
+        name: '弓步下潜过浅（半蹲偷懒/不达标）',
+        shortName: '幅度过浅',
+        where: '前膝屈曲仅至 125°，大腿远未下沉到水平线即匆忙折返起立。',
+        why: '臀大肌与股四头肌离心收缩刺激不足，难以有效激活下肢深层力量链。',
+        correction: '深沉髋部让后膝自然下沉逼近地面，观察界面达标提示后平稳起立。',
+        aiRule: 'AI 状态机识别最低折返点未触达 full 目标线，标记为未达标浅动作（不计有效次数）。'
+      }
+    ]
+  },
+  pushup: {
+    standard: {
+      title: '俯卧撑 · 标准动作要领示范',
+      summary: '平板支撑身姿、头肩髋踝一线、胸口贴地下沉、平稳推起。',
+      cues: [
+        { label: '躯干刚体一线', desc: '收紧核心与臀大肌，后脑勺、背部、臀部、脚跟自始至终呈一条平整的斜线。' },
+        { label: '胸口触地下潜', desc: '屈肘下沉直至胸口距地面约一拳高度（肘关节屈曲内角 ≤ 90°），肩胛骨平稳回缩。' },
+        { label: '推起顶峰撑展', desc: '双手掌跟均匀推地，伸直双臂顶起胸廓，避免手腕单侧受力。' }
+      ]
+    },
+    faults: [
+      {
+        id: 'sagging_hips',
+        tag: '常见错误 01',
+        name: '腰腹塌陷/撅臀代偿（平板脊柱折角）',
+        shortName: '塌腰代偿',
+        where: '下压或推起时腰椎无力下沉塌陷，或撅起屁股分担上肢负荷，身体呈弓形折角。',
+        why: '腰椎腰背筋膜受到异常剪切撕扯，导致腰背酸痛，同时胸大肌刺激大幅度被削弱。',
+        correction: '骨盆微后倾，腹肌与臀大肌如铁板般全程紧绷，严禁松腰或塌臀。',
+        aiRule: 'AI 检测到 shoulder-hip-ankle 三点折线夹角偏离 180° 超出 25°，实时触发 sagging_hips 警报。'
+      },
+      {
+        id: 'shallow_pushup',
+        tag: '常见错误 02',
+        name: '屈臂幅度不足（半程推起/假撑）',
+        shortName: '幅度不足',
+        where: '肘关节下屈仅到 118°，胸口距离地面甚远便草草撑起。',
+        why: '胸大肌和肱三头肌未进入有效做功行程，无法刺激肌肉充分撕裂与重塑。',
+        correction: '有控制地匀速下沉，让胸口接近地面标线后再发力推起。',
+        aiRule: 'AI 状态机识别最小屈曲内角未达 full 达标线，拦截并标记为浅动作（不予计数）。'
+      }
+    ]
   }
 });
 
@@ -213,7 +289,7 @@ export function extractJointAngle(landmarks, exerciseId, options = 0.6) {
     return null;
   }
 
-  const sideConfigs = exerciseId === 'curl'
+  const sideConfigs = (exerciseId === 'curl' || exerciseId === 'pushup')
     ? [{ ids: [11, 13, 15], side: '左侧' }, { ids: [12, 14, 16], side: '右侧' }]
     : [{ ids: [23, 25, 27], side: '左侧' }, { ids: [24, 26, 28], side: '右侧' }];
 
@@ -222,8 +298,8 @@ export function extractJointAngle(landmarks, exerciseId, options = 0.6) {
     const rawPts = ids.map(i => landmarks[i]);
     if (rawPts.some(p => !p || !Number.isFinite(p.x) || !Number.isFinite(p.y) ||
       (p.visibility ?? 1) < visibilityThreshold)) continue;
-    // Squat and curl use rigid links in the same 960x540 pixel coordinate system.
-    const pts = exerciseId === 'squat' || exerciseId === 'curl'
+    // Squat, curl, lunge and pushup use rigid links in the same 960x540 pixel coordinate system.
+    const pts = (exerciseId === 'squat' || exerciseId === 'curl' || exerciseId === 'lunge' || exerciseId === 'pushup')
       ? rawPts.map(p => toPixelPoint(p)) : rawPts;
     const angle = angleDegrees(...pts);
     const score = Math.min(...rawPts.map(p => p.visibility ?? 1));
@@ -255,7 +331,7 @@ export function extractJointAngle(landmarks, exerciseId, options = 0.6) {
 /** Evaluates form quality and biomechanical risk factors (e.g. excessive trunk lean, arm swinging). */
 export function checkPostureFault(landmarks, exerciseId, side = '左侧', options = {}) {
   if (!landmarks || landmarks.length < 33) return null;
-  const isLeft = side === '左侧';
+  const isLeft = (side ?? '左侧') !== '右侧';
 
   if (exerciseId === 'squat') {
     const shoulder = landmarks[isLeft ? 11 : 12];
@@ -315,6 +391,39 @@ export function checkPostureFault(landmarks, exerciseId, side = '左侧', option
         return { code: 'asymmetry_or_desync', message: '手臂已经举高，但双腿尚未同步展开', value: Math.round(legSpread * 100) / 100 };
       }
     }
+  } else if (exerciseId === 'lunge') {
+    const knee = landmarks[isLeft ? 25 : 26];
+    const ankle = landmarks[isLeft ? 27 : 28];
+    const shoulder = landmarks[isLeft ? 11 : 12];
+    const hip = landmarks[isLeft ? 23 : 24];
+    if (!knee || !ankle || !shoulder || !hip ||
+        (knee.visibility ?? 1) < 0.45 || (ankle.visibility ?? 1) < 0.45 ||
+        (shoulder.visibility ?? 1) < 0.45 || (hip.visibility ?? 1) < 0.45) return null;
+    const kneePx = toPixelPoint(knee);
+    const anklePx = toPixelPoint(ankle);
+    const shPx = toPixelPoint(shoulder);
+    const hipPx = toPixelPoint(hip);
+    const dxTorso = Math.abs(shPx.x - hipPx.x);
+    const dyTorso = hipPx.y - shPx.y;
+    const torsoLean = dyTorso > 10 ? Math.atan2(dxTorso, dyTorso) * 180 / Math.PI : 0;
+    const kneeForward = Math.abs(kneePx.x - anklePx.x);
+    if (kneeForward > 44 || torsoLean > 35) {
+      return { code: 'knee_over_toes', message: '保持躯干笔直中立，前膝避免过度前冲超过脚尖', value: Math.round(Math.max(kneeForward, torsoLean)) };
+    }
+  } else if (exerciseId === 'pushup') {
+    const shoulder = landmarks[isLeft ? 11 : 12];
+    const hip = landmarks[isLeft ? 23 : 24];
+    const ankle = landmarks[isLeft ? 27 : 28];
+    if (!shoulder || !hip || !ankle ||
+        (shoulder.visibility ?? 1) < 0.45 || (hip.visibility ?? 1) < 0.45 || (ankle.visibility ?? 1) < 0.45) return null;
+    const pts = [shoulder, hip, ankle].map(p => toPixelPoint(p));
+    const bodyAngle = angleDegrees(...pts);
+    if (bodyAngle !== null) {
+      const deviation = Math.abs(180 - bodyAngle);
+      if (deviation > 25) {
+        return { code: 'sagging_hips', message: '收紧核心与臀部，保持头肩髋踝呈一直线，避免塌腰', value: Math.round(deviation) };
+      }
+    }
   }
   return null;
 }
@@ -347,7 +456,7 @@ export class ExerciseAnalyzer {
     this.lastEvent = null;
     this.activeSide = null;
     this.depthProgress = 0;
-    this.faultCounts = { trunk_lean: 0, arm_swing: 0, arm_asymmetry: 0 };
+    this.faultCounts = { trunk_lean: 0, arm_swing: 0, arm_asymmetry: 0, knee_over_toes: 0, sagging_hips: 0 };
     this.jackArmAsymmetry = false;
     this.lastFaultTimes = {};
     this.currentFault = null;
@@ -547,7 +656,7 @@ export class ExerciseAnalyzer {
 
       if (isAtExtended) {
         const duration = timestamp - this.repStartedAt;
-        const armComplete = isExpand ? this.peakAngle >= full : this.minAngle <= full;
+        const armComplete = isExpand ? this.peakAngle >= full - 0.5 : this.minAngle <= full + 0.5;
         let legComplete = true;
         let legFaultReason = '';
 

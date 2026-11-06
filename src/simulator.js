@@ -16,26 +16,30 @@ export function simulatedAngle(elapsedMs, exerciseId, options = {}) {
     full = diff === 'advanced' ? 90 : (diff === 'beginner' ? 115 : 91);
   } else if (exerciseId === 'curl') {
     full = diff === 'advanced' ? 45 : (diff === 'beginner' ? 70 : 48);
-  } else {
-    // jumping_jack
+  } else if (exerciseId === 'jumping_jack') {
     full = diff === 'advanced' ? 173 : (diff === 'beginner' ? 160 : 168);
+  } else if (exerciseId === 'lunge') {
+    full = diff === 'advanced' ? 90 : (diff === 'beginner' ? 115 : 102);
+  } else if (exerciseId === 'pushup') {
+    full = diff === 'advanced' ? 72 : (diff === 'beginner' ? 102 : 87);
   }
-  const partial = exerciseId === 'squat' ? 128 : (exerciseId === 'jumping_jack' ? 85 : 108);
+  const partial = exerciseId === 'squat' ? 128 : (exerciseId === 'jumping_jack' ? 85 : (exerciseId === 'curl' ? 108 : (exerciseId === 'pushup' ? 118 : 128)));
 
   let peak;
   if (options.mode === 'standard') {
     // Pure standard mode: every cycle reaches 100% full textbook target depth across all difficulties (MODE-02)
     peak = full;
   } else if (options.mode === 'fault') {
-    // Fault mode: only squat & curl fault 1 are shallow reps; jumping jack faults keep full peak depth (MODE-01)
-    const isShallow = options.faultId?.includes('shallow') || ((exerciseId === 'squat' || exerciseId === 'curl') && options.faultIndex === 1);
+    // Fault mode: only squat, curl, lunge & pushup fault 1 are shallow reps; jumping jack faults keep full peak depth (MODE-01)
+    const isShallow = options.faultId?.includes('shallow') ||
+      ((exerciseId === 'squat' || exerciseId === 'curl' || exerciseId === 'lunge' || exerciseId === 'pushup') && options.faultIndex === 1);
     peak = isShallow ? partial : full;
   } else {
     // Backward compatibility for existing unit tests & automated benchmarks
-    peak = cycle % 4 === 2 ? partial : (exerciseId === 'curl' ? 52 : (exerciseId === 'jumping_jack' ? 168 : 91));
+    peak = cycle % 4 === 2 ? partial : (exerciseId === 'curl' ? 52 : (exerciseId === 'jumping_jack' ? 168 : (exerciseId === 'pushup' ? 87 : (exerciseId === 'lunge' ? 102 : 91))));
   }
 
-  const standing = exerciseId === 'jumping_jack' ? 25 : 174;
+  const standing = exerciseId === 'jumping_jack' ? 25 : (exerciseId === 'pushup' ? 165 : 174);
   if (exerciseId === 'jumping_jack') {
     if (t < .18) return standing;
     if (t < .46) return standing + (peak - standing) * smooth5((t - .18) / .28);
@@ -70,6 +74,8 @@ function activeFault(exerciseId, options, cycle) {
     squat: { trunk_lean: 0, shallow_squat: 1 },
     curl: { arm_swing: 0, shallow_curl: 1 },
     jumping_jack: { asymmetry_or_desync: 0, arm_asymmetry: 1, static_legs: 2 },
+    lunge: { knee_over_toes: 0, shallow_lunge: 1 },
+    pushup: { sagging_hips: 0, shallow_pushup: 1 },
   };
   return options.faultIndex ?? known[exerciseId]?.[options.faultId] ?? 0;
 }
@@ -196,24 +202,156 @@ function simulateJumpingJack(elapsedMs, options, activeFaultIndex, t, angleDeg) 
   return p;
 }
 
+function simulateLunge(elapsedMs, options, activeFaultIndex, t, angleDeg, lungeKneeOverToes) {
+  const points = blank();
+  const W = 960, H = 540;
+  const L_SHIN = 118.8, L_THIGH = 113.4, L_TORSO = 124.2, L_UPPER = 76.0, L_FOREARM = 76.0;
+  const angle = angleDeg * Math.PI / 180;
+  const squatRatio = Math.max(0, Math.min(1, (174 - angleDeg) / (174 - 92)));
+
+  const frontAnkleX = W * 0.49, frontAnkleY = H * 0.86;
+  const normalShinTilt = 2 + 4 * squatRatio;
+  const shinTiltDeg = normalShinTilt + 24 * lungeKneeOverToes;
+  const shinTilt = shinTiltDeg * Math.PI / 180;
+
+  const kneeX = frontAnkleX - L_SHIN * Math.sin(shinTilt);
+  const kneeY = frontAnkleY - L_SHIN * Math.cos(shinTilt);
+  const dirKneeToAnkle = Math.atan2(frontAnkleY - kneeY, frontAnkleX - kneeX);
+  const dirKneeToHip = dirKneeToAnkle - angle;
+  const hipX = kneeX + L_THIGH * Math.cos(dirKneeToHip);
+  const hipY = kneeY + L_THIGH * Math.sin(dirKneeToHip);
+
+  const normalTorsoTilt = 2 + 3 * squatRatio;
+  const torsoTiltDeg = normalTorsoTilt + 38 * lungeKneeOverToes;
+  const torsoRad = torsoTiltDeg * Math.PI / 180;
+  const shoulderX = hipX - L_TORSO * Math.sin(torsoRad);
+  const shoulderY = hipY - L_TORSO * Math.cos(torsoRad);
+
+  const headX = shoulderX - 50 * Math.sin(torsoRad) - 8 * Math.cos(torsoRad);
+  const headY = shoulderY - 50 * Math.cos(torsoRad) + 8 * Math.sin(torsoRad);
+
+  const armRad = (10 + 15 * squatRatio + 10 * lungeKneeOverToes) * Math.PI / 180;
+  const elbowX = shoulderX - L_UPPER * Math.sin(armRad);
+  const elbowY = shoulderY + L_UPPER * Math.cos(armRad);
+  const wristX = elbowX - L_FOREARM * Math.sin(armRad);
+  const wristY = elbowY + L_FOREARM * Math.cos(armRad);
+
+  // Back leg (far side silhouette)
+  const far = 18.0;
+  const backHipX = hipX + far, backHipY = hipY;
+  const backThighTilt = (4 + 6 * squatRatio) * Math.PI / 180;
+  const backKneeX = backHipX - L_THIGH * Math.sin(backThighTilt);
+  const backKneeY = backHipY + L_THIGH * Math.cos(backThighTilt);
+
+  const backKneeAngle = (168 - (168 - 92) * squatRatio) * Math.PI / 180;
+  const dirBackThigh = Math.atan2(backKneeY - backHipY, backKneeX - backHipX);
+  const dirBackShin = dirBackThigh - (Math.PI - backKneeAngle);
+  const backAnkleX = backKneeX + L_SHIN * Math.cos(dirBackShin);
+  const backAnkleY = backKneeY + L_SHIN * Math.sin(dirBackShin);
+
+  // Near side: Left (primary measured side)
+  put(points, 23, hipX / W, hipY / H);
+  put(points, 25, kneeX / W, kneeY / H);
+  put(points, 27, frontAnkleX / W, frontAnkleY / H);
+  put(points, 29, (frontAnkleX - 25) / W, (frontAnkleY + 5) / H);
+  put(points, 31, (frontAnkleX + 15) / W, (frontAnkleY + 5) / H);
+  put(points, 11, shoulderX / W, shoulderY / H);
+  put(points, 13, elbowX / W, elbowY / H);
+  put(points, 15, wristX / W, wristY / H);
+  put(points, 0, headX / W, headY / H);
+
+  // Far side: Right
+  const putFar = (idx, x, y) => { points[idx] = { x, y, visibility: 0.90 }; };
+  putFar(24, backHipX / W, backHipY / H);
+  putFar(26, backKneeX / W, backKneeY / H);
+  putFar(28, backAnkleX / W, backAnkleY / H);
+  putFar(30, (backAnkleX - 20) / W, (backAnkleY + 5) / H);
+  putFar(32, (backAnkleX + 15) / W, (backAnkleY + 5) / H);
+  putFar(12, (shoulderX + far) / W, shoulderY / H);
+  putFar(14, (elbowX + far) / W, elbowY / H);
+  putFar(16, (wristX + far) / W, wristY / H);
+
+  return points;
+}
+
+function simulatePushup(elapsedMs, options, activeFaultIndex, t, angleDeg, pushupSaggingHips) {
+  const points = blank();
+  const W = 960, H = 540;
+  const L_UPPER = 92.0, L_FOREARM = 88.0;
+  const L_TORSO = 145.0, L_THIGH = 115.0, L_SHIN = 110.0;
+  const L_LEG = L_THIGH + L_SHIN;
+  const L_BODY = L_LEG + L_TORSO;
+  const angle = angleDeg * Math.PI / 180;
+
+  const ankleX = 240, ankleY = 445;
+  const wristX = 600, wristY = 460;
+  const ankle = { x: ankleX, y: ankleY };
+  const wrist = { x: wristX, y: wristY };
+
+  const R = Math.sqrt(L_UPPER * L_UPPER + L_FOREARM * L_FOREARM - 2 * L_UPPER * L_FOREARM * Math.cos(angle));
+
+  const shoulderDist = L_BODY - 14 * pushupSaggingHips;
+  const shoulder = rigidTwoLink(ankle, wrist, shoulderDist, R, -1);
+  const elbow = rigidTwoLink(shoulder, wrist, L_UPPER, L_FOREARM, -1);
+
+  const hip = pushupSaggingHips === 0
+    ? { x: ankle.x + (L_LEG / L_BODY) * (shoulder.x - ankle.x), y: ankle.y + (L_LEG / L_BODY) * (shoulder.y - ankle.y) }
+    : rigidTwoLink(ankle, shoulder, L_LEG, L_TORSO, +1);
+
+  const knee = { x: ankle.x + (L_SHIN / L_LEG) * (hip.x - ankle.x), y: ankle.y + (L_SHIN / L_LEG) * (hip.y - ankle.y) };
+
+  const bodyDir = Math.atan2(shoulder.y - hip.y, shoulder.x - hip.x);
+  const headX = shoulder.x + 45 * Math.cos(bodyDir);
+  const headY = shoulder.y + 45 * Math.sin(bodyDir);
+
+  put(points, 11, shoulder.x / W, shoulder.y / H);
+  put(points, 13, elbow.x / W, elbow.y / H);
+  put(points, 15, wrist.x / W, wrist.y / H);
+  put(points, 23, hip.x / W, hip.y / H);
+  put(points, 25, knee.x / W, knee.y / H);
+  put(points, 27, ankle.x / W, ankle.y / H);
+  put(points, 29, (ankle.x - 20) / W, (ankle.y + 15) / H);
+  put(points, 31, (ankle.x - 25) / W, (ankle.y + 12) / H);
+  put(points, 0, headX / W, headY / H);
+
+  const putFar = (idx, x, y) => { points[idx] = { x, y, visibility: 0.90 }; };
+  putFar(12, (shoulder.x - 12) / W, (shoulder.y - 10) / H);
+  putFar(14, (elbow.x - 12) / W, (elbow.y - 10) / H);
+  putFar(16, (wrist.x - 12) / W, (wrist.y - 5) / H);
+  putFar(24, (hip.x - 10) / W, (hip.y - 10) / H);
+  putFar(26, (knee.x - 10) / W, (knee.y - 10) / H);
+  putFar(28, (ankle.x - 10) / W, (ankle.y - 8) / H);
+  putFar(30, (ankle.x - 30) / W, (ankle.y + 7) / H);
+  putFar(32, (ankle.x - 35) / W, (ankle.y + 4) / H);
+
+  return points;
+}
+
 export function simulatePose(elapsedMs, exerciseId, options = {}) {
   const period = 4700;
   const cycle = Math.floor(elapsedMs / period);
   const t = (elapsedMs % period) / period;
 
   const activeFaultIndex = activeFault(exerciseId, options, cycle);
-  // Continuous, repeatable compensation envelope. Peaks at t=0.48..0.55;
-  // no step jumps at 0.38 or 0.65. Kept separate from knee/elbow ROM.
   const squatLean = activeFaultIndex === 0 && exerciseId === 'squat'
     ? faultEnvelope(t, 0.29, 0.46, 0.56, 0.73) : 0;
   const curlSwing = activeFaultIndex === 0 && exerciseId === 'curl'
     ? faultEnvelope(t, 0.30, 0.48, 0.54, 0.72) : 0;
+  const lungeKneeOverToes = activeFaultIndex === 0 && exerciseId === 'lunge'
+    ? faultEnvelope(t, 0.29, 0.46, 0.56, 0.73) : 0;
+  const pushupSaggingHips = activeFaultIndex === 0 && exerciseId === 'pushup'
+    ? faultEnvelope(t, 0.29, 0.46, 0.56, 0.73) : 0;
+
   const points = blank();
   const angleDeg = simulatedAngle(elapsedMs, exerciseId, options);
   const angle = angleDeg * Math.PI / 180;
 
   if (exerciseId === 'jumping_jack') {
     return simulateJumpingJack(elapsedMs, options, activeFaultIndex, t, angleDeg);
+  } else if (exerciseId === 'lunge') {
+    return simulateLunge(elapsedMs, options, activeFaultIndex, t, angleDeg, lungeKneeOverToes);
+  } else if (exerciseId === 'pushup') {
+    return simulatePushup(elapsedMs, options, activeFaultIndex, t, angleDeg, pushupSaggingHips);
   } else if (exerciseId === 'squat') {
     const squatRatio = Math.max(0, Math.min(1, (174 - angleDeg) / (174 - 91)));
     const W = 960, H = 540;

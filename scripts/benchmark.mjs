@@ -5,7 +5,7 @@
 import { ExerciseAnalyzer, extractJointAngle, checkPostureFault } from '../src/exercise.js';
 import { simulatePose } from '../src/simulator.js';
 
-const EXERCISES = ['squat', 'curl', 'jumping_jack'];
+const EXERCISES = ['squat', 'curl', 'jumping_jack', 'lunge', 'pushup'];
 const FRAME_RATES = [15, 24, 30]; // Typical webcam and mobile frame rates
 
 function runExerciseBenchmark(exerciseId, fps, cycles = 6, options = {}) {
