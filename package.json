@@ -13,6 +13,7 @@
     "smoke": "node scripts/smoke.mjs",
     "test:security": "python scripts/test_package_security.py",
     "download-models": "python scripts/download_models.py",
+    "preview:sync": "node scripts/sync-preview.mjs",
     "package": "python scripts/package.py"
   },
   "engines": {"node": ">=18"}

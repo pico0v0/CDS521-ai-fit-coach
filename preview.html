@@ -1,107 +1,2015 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>动作姿态与运动学对照实验室</title>
-<style>
-:root{color-scheme:dark;--bg:#09131b;--card:#10232f;--edge:#254551;--mint:#91ead4;--text:#eaf6f5;--mute:#9ab2b8;--amber:#ffd18c}
-*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:radial-gradient(circle at 50% -10%,#173a43 0%,var(--bg) 58%);color:var(--text)}
-.wrap{max-width:1500px;margin:0 auto;padding:24px}.tag{font-size:11px;letter-spacing:.22em;font-weight:800;color:var(--mint)}h1{font-size:clamp(25px,3vw,39px);margin:6px 0 8px}.desc{font-size:13px;color:var(--mute);max-width:900px;line-height:1.8;margin:0 0 20px}
-.toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:#10212bc7;border:1px solid var(--edge);border-radius:14px;padding:14px;margin-bottom:16px}
-select,button,input{accent-color:#9ae7c3}select,button{color:var(--text);background:#1a3440;border:1px solid #40616a;border-radius:10px;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer}button.primary{background:#a6f4ca;color:#0c3229;border-color:transparent}input[type=range]{flex:1;min-width:155px}#clock{min-width:86px;text-align:right;font:700 13px ui-monospace,monospace;color:#e2f7ee}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.pane{border:1px solid #33515d;border-radius:16px;overflow:hidden;background:linear-gradient(155deg,#102835,#06131c);box-shadow:0 14px 46px #0004}.paneHead{padding:13px 18px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #29454c}.paneHead strong{font-size:15px}.paneHead span{font-size:11px;color:var(--mute)}canvas{display:block;width:100%;height:auto;aspect-ratio:16/9}.metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));padding:12px;gap:9px}.metric{border:1px solid #243f49;background:#09192278;border-radius:9px;padding:10px}.key{font-size:10px;color:var(--mute)}.value{font-size:17px;font-weight:800;margin-top:4px;color:#a9efd5;font-variant-numeric:tabular-nums}.err .value{color:var(--amber)}.foot{margin:20px 0 0;display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:12px;color:#adc1c3}.foot b{color:var(--mint)}.note{margin-top:12px;font-size:12px;color:#829fa6;line-height:1.8}
-@media(max-width:1000px){.grid{grid-template-columns:1fr}.wrap{padding:12px}}
-</style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Fit Coach · 骨骼姿态动画精修与运动学对照实验室</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #09131b;
+      --panel: #10232f;
+      --edge: #254551;
+      --mint: #91ead4;
+      --text: #eaf6f5;
+      --mute: #9ab2b8;
+      --amber: #ffd18c;
+      --danger: #ff7878;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: radial-gradient(circle at 50% -10%, #173a43 0%, var(--bg) 58%);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .wrap { max-width: 1500px; margin: 0 auto; }
+    .tag { font-size: 11px; letter-spacing: .22em; font-weight: 800; color: var(--mint); text-transform: uppercase; }
+    h1 { font-size: clamp(22px, 2.5vw, 34px); margin: 6px 0 8px; }
+    .desc { font-size: 13px; color: var(--mute); max-width: 1000px; line-height: 1.8; margin-bottom: 18px; }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      background: #10212bc7;
+      border: 1px solid var(--edge);
+      border-radius: 14px;
+      padding: 12px 16px;
+      margin-bottom: 16px;
+    }
+    label { font-size: 12px; font-weight: 700; color: var(--mute); }
+    select, button, input { accent-color: var(--mint); }
+    select, button {
+      color: var(--text);
+      background: #1a3440;
+      border: 1px solid #40616a;
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      outline: none;
+    }
+    button.primary { background: #a6f4ca; color: #0c3229; border-color: transparent; }
+    button:hover { filter: brightness(1.1); }
+    input[type=range] { flex: 1; min-width: 160px; cursor: pointer; }
+    #clock { min-width: 90px; text-align: right; font: 700 13px ui-monospace, monospace; color: #e2f7ee; }
+
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+    .pane {
+      border: 1px solid #33515d;
+      border-radius: 16px;
+      overflow: hidden;
+      background: linear-gradient(155deg, #102835, #06131c);
+      box-shadow: 0 14px 46px #0004;
+      display: flex;
+      flex-direction: column;
+    }
+    .paneHead {
+      padding: 12px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #29454c;
+    }
+    .paneHead strong { font-size: 14px; }
+    .paneHead span { font-size: 11px; color: var(--mute); }
+    .canvas-wrap { position: relative; width: 100%; aspect-ratio: 16/9; background: #08141d; }
+    canvas { display: block; width: 100%; height: 100%; }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      padding: 12px;
+      gap: 10px;
+      background: #0a172188;
+    }
+    .metric {
+      border: 1px solid #243f49;
+      background: #09192278;
+      border-radius: 8px;
+      padding: 8px 10px;
+    }
+    .key { font-size: 10px; color: var(--mute); }
+    .value { font-size: 16px; font-weight: 800; margin-top: 3px; color: #a9efd5; font-variant-numeric: tabular-nums; }
+    .pane.err .value { color: var(--amber); }
+
+    .alert-banner {
+      padding: 10px 14px;
+      border-top: 1px solid #29454c;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(14, 28, 38, 0.6);
+    }
+    .alert-tag {
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+    }
+    .tag-ok { background: rgba(145, 234, 212, 0.15); color: var(--mint); border: 1px solid var(--mint); }
+    .tag-warn { background: rgba(255, 209, 140, 0.15); color: var(--amber); border: 1px solid var(--amber); }
+
+    .info-card {
+      border: 1px solid #2d4c57;
+      background: #0c1d27;
+      border-radius: 14px;
+      padding: 16px 20px;
+      margin-bottom: 16px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    .info-card h3 { font-size: 13px; color: var(--mint); margin-bottom: 8px; text-transform: uppercase; }
+    .info-item { font-size: 12px; line-height: 1.7; color: #b7cad4; margin-bottom: 6px; }
+    .info-item strong { color: #eaf6f5; }
+
+    .rigidity-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+      font-family: ui-monospace, monospace;
+      margin-top: 8px;
+    }
+    .rigidity-table th, .rigidity-table td {
+      padding: 4px 8px;
+      text-align: left;
+      border-bottom: 1px solid #1f3743;
+    }
+    .rigidity-table th { color: var(--mute); }
+    .rigidity-table .good-len { color: var(--mint); font-weight: 700; }
+    .rigidity-table .bad-len { color: var(--danger); font-weight: 700; }
+
+    @media (max-width: 1000px) {
+      .grid, .info-card { grid-template-columns: 1fr; }
+    }
+  </style>
 </head>
 <body>
 <div class="wrap">
-<div class="tag">AI FIT COACH · SKELETON MOTION LAB</div>
-<h1 id="pageTitle">动作姿态与运动学对照</h1>
-<p class="desc" id="pageDesc">960×540 像素坐标约束 · 全骨段长度固定 · 关节角与分析器严格统一 · 每周期 4700ms。左侧是标准正确动作，右侧选择典型错误对照。</p>
-<div class="toolbar">
-  <label for="exerciseSelect">训练动作</label>
-  <select id="exerciseSelect">
-    <option value="jumping_jack" selected>开合跳 (JUMPING JACK)</option>
-    <option value="lunge">弓步 (LUNGE)</option>
-    <option value="pushup">俯卧撑 (PUSH-UP)</option>
-    <option value="squat">深蹲 (SQUAT)</option>
-    <option value="curl">弯举 (CURL)</option>
-  </select>
-  <label for="variant">错误模式</label>
-  <select id="variant"></select>
-  <label for="difficulty">难度</label>
-  <select id="difficulty"><option value="standard">标准</option><option value="beginner">初学</option><option value="advanced">进阶</option></select>
-  <button id="play" class="primary">⏸ 暂停</button><button id="reset">↺ 重播</button>
-  <input type="range" id="scrub" min="0" max="4700" step="10" value="0" aria-label="拖动时间轴">
-  <span id="clock">0.00 / 4.70s</span>
-</div>
-<div class="grid">
-  <section class="pane"><div class="paneHead"><strong>✓ 正确示范</strong><span id="goodSub">标准动作 · 轨迹平稳</span></div><canvas id="good" width="960" height="540"></canvas><div class="metrics"><div class="metric"><div class="key">关键角 / 指标</div><div class="value" id="goodArm">—</div></div><div class="metric"><div class="key">动作完成度</div><div class="value" id="goodLeg">—</div></div><div class="metric"><div class="key">辅助位移</div><div class="value" id="goodLift">—</div></div></div></section>
-  <section class="pane err"><div class="paneHead"><strong id="faultName">! 姿态错误</strong><span>同一时间轴 · 可逐帧对照</span></div><canvas id="fault" width="960" height="540"></canvas><div class="metrics"><div class="metric"><div class="key">关键角 / 指标</div><div class="value" id="badArm">—</div></div><div class="metric"><div class="key">动作完成度</div><div class="value" id="badLeg">—</div></div><div class="metric"><div class="key">AI 实时告警</div><div class="value" id="alarm">—</div></div></div></section>
-</div>
-<div class="foot" id="footInfo"><b>参数校验</b>960×540 刚体不变性校验通过。<b>判定</b>状态机与姿态核验模块无缝对接。</div>
-</div>
-<script type="module">
-import {simulatePose,simulatedAngle} from './src/simulator.js';
-import {drawPose} from './src/draw.js';
-import {checkPostureFault,extractJointAngle,getLegSpreadRatio,angleDegrees,toPixelPoint} from './src/exercise.js';
-const $=id=>document.getElementById(id);
-const FAULTS={
-  jumping_jack:['手腿脱节','双臂不对称','腿未展开'],
-  lunge:['前膝超脚尖 / 躯干前扑','幅度不足 (浅弓步)'],
-  pushup:['腰腹塌陷 / 撅臀折角','幅度不足 (半程推起)'],
-  squat:['躯干过度前倾','深度不足 (浅蹲)'],
-  curl:['大臂前后借力','幅度不足 (半程弯举)']
-};
-let clockMs=0,playing=true,last=performance.now();
+  <div class="tag">AI FIT COACH · POSE REFINE LAB v0.3.0</div>
+  <h1 id="pageTitle">动作姿态与运动学对照精修实验室</h1>
+  <p class="desc">960×540 像素各向同性坐标约束 · 全肢体欧氏骨长 100% 恒定刚体 · 周期严格固定 4700ms。左侧为标准正确动作示范，右侧对照典型错误代偿。拖动下方时间轴可逐帧精细对比骨骼形态与角度。</p>
 
-function updateVariants(){
-  const ex=$('exerciseSelect').value;
-  const list=FAULTS[ex]||FAULTS.jumping_jack;
-  $('variant').innerHTML=list.map((name,i)=>`<option value="${i}">错误 0${i+1} · ${name}</option>`).join('');
-  $('pageTitle').textContent=`${ex==='lunge'?'弓步':(ex==='pushup'?'俯卧撑':(ex==='squat'?'深蹲':(ex==='curl'?'弯举':'开合跳')))} · 正确 / 错误姿势运动学对照`;
+  <div class="toolbar">
+    <label for="exerciseSelect">训练动作</label>
+    <select id="exerciseSelect">
+      <option value="squat">深蹲 (SQUAT)</option>
+      <option value="curl">弯举 (CURL)</option>
+      <option value="jumping_jack">开合跳 (JUMPING JACK)</option>
+      <option value="lunge">弓步 (LUNGE)</option>
+      <option value="pushup">俯卧撑 (PUSH-UP)</option>
+    </select>
+
+    <label for="variant">错误模式</label>
+    <select id="variant"></select>
+
+    <label for="difficulty">难度</label>
+    <select id="difficulty">
+      <option value="standard" selected>标准 (Standard)</option>
+      <option value="beginner">初学 (Beginner)</option>
+      <option value="advanced">进阶 (Advanced)</option>
+    </select>
+
+    <button id="play" class="primary">⏸ 暂停</button>
+    <button id="reset">↺ 重置</button>
+    <input type="range" id="scrub" min="0" max="4700" step="10" value="0" aria-label="时间轴">
+    <span id="clock">0.00 / 4.70s</span>
+  </div>
+
+  <div class="grid">
+    <!-- Left: Standard Mode -->
+    <section class="pane">
+      <div class="paneHead">
+        <strong>✓ 标准动作示范 (Standard Mode)</strong>
+        <span id="goodSub">中立刚体 · 达标幅度</span>
+      </div>
+      <div class="canvas-wrap">
+        <canvas id="good" width="960" height="540"></canvas>
+      </div>
+      <div class="metrics">
+        <div class="metric"><div class="key">测量关节角</div><div class="value" id="goodAngle">—</div></div>
+        <div class="metric"><div class="key">动作完成度</div><div class="value" id="goodProgress">—</div></div>
+        <div class="metric"><div class="key">主侧别</div><div class="value" id="goodSide">—</div></div>
+      </div>
+      <div class="alert-banner">
+        <span class="alert-tag tag-ok">状态：规范达标</span>
+        <span id="goodAlertText">姿态合规，无异常代偿</span>
+      </div>
+    </section>
+
+    <!-- Right: Fault Mode -->
+    <section class="pane err">
+      <div class="paneHead">
+        <strong id="faultHead">! 错误姿态示范 (Fault Mode)</strong>
+        <span>同一时间轴 · 逐帧动态对照</span>
+      </div>
+      <div class="canvas-wrap">
+        <canvas id="fault" width="960" height="540"></canvas>
+      </div>
+      <div class="metrics">
+        <div class="metric"><div class="key">测量关节角</div><div class="value" id="badAngle">—</div></div>
+        <div class="metric"><div class="key">动作完成度</div><div class="value" id="badProgress">—</div></div>
+        <div class="metric"><div class="key">主侧别</div><div class="value" id="badSide">—</div></div>
+      </div>
+      <div class="alert-banner">
+        <span class="alert-tag tag-warn" id="badAlertTag">AI 实时告警</span>
+        <span id="badAlertText">—</span>
+      </div>
+    </section>
+  </div>
+
+  <!-- Detailed Guides & Rigidity Inspector -->
+  <div class="info-card">
+    <div>
+      <h3>运动生物力学与错误代偿说明</h3>
+      <div class="info-item"><strong>【错误名称】</strong><span id="faultNameText">—</span></div>
+      <div class="info-item"><strong>【错在哪里】</strong><span id="faultWhereText">—</span></div>
+      <div class="info-item"><strong>【伤害机制】</strong><span id="faultWhyText">—</span></div>
+      <div class="info-item"><strong>【纠正指导】</strong><span id="faultCorrText">—</span></div>
+      <div class="info-item"><strong>【AI 检测规则】</strong><span id="faultAiRuleText">—</span></div>
+    </div>
+    <div>
+      <h3>960×540 像素骨长刚度监测 (Rigidity Monitor)</h3>
+      <p style="font-size:11px;color:var(--mute);margin-bottom:8px;">每一帧的骨骼长度必须恒定不变，严禁因关节旋转导致骨骼缩短或拉伸（误差须 ≤ 10⁻⁴ px）：</p>
+      <table class="rigidity-table">
+        <thead>
+          <tr><th>骨骼段</th><th>设计基准</th><th>标准模式长度</th><th>错误模式长度</th><th>状态</th></tr>
+        </thead>
+        <tbody id="rigidityBody">
+          <!-- Populated dynamically -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+// BEGIN GENERATED SOURCES — npm run preview:sync
+const { simulatePose, simulatedAngle } = (() => {
+// Embedded src/simulator.js (generated; edit src/simulator.js, not this block)
+/** Clearly labelled synthetic coordinates for UI and algorithm testing; never described as AI inference. */
+function blank() { return Array.from({ length: 33 }, () => ({ x: 0, y: 0, visibility: 0 })); }
+function put(points, index, x, y) { points[index] = { x, y, visibility: 0.99 }; }
+
+function simulatedAngle(elapsedMs, exerciseId, options = {}) {
+  const period = 4700;
+  const cycle = Math.floor(elapsedMs / period);
+  const t = (elapsedMs % period) / period;
+  // Quintic ease keeps velocity AND acceleration zero at phase boundaries.
+  // The small time warp preserves asymmetric eccentric/concentric momentum,
+  // while smooth5 still makes each join C2-continuous.
+  const easing = (u, skew) => smooth5(u + skew * 4 * u * u * (1 - u) * (1 - u));
+
+  const diff = options.difficulty || 'standard';
+  let full;
+  if (exerciseId === 'squat') {
+    full = diff === 'advanced' ? 90 : (diff === 'beginner' ? 115 : 91);
+  } else if (exerciseId === 'curl') {
+    full = diff === 'advanced' ? 45 : (diff === 'beginner' ? 70 : 48);
+  } else if (exerciseId === 'jumping_jack') {
+    full = diff === 'advanced' ? 173 : (diff === 'beginner' ? 160 : 168);
+  } else if (exerciseId === 'lunge') {
+    full = diff === 'advanced' ? 90 : (diff === 'beginner' ? 115 : 102);
+  } else if (exerciseId === 'pushup') {
+    full = diff === 'advanced' ? 72 : (diff === 'beginner' ? 102 : 87);
+  }
+  const partial = exerciseId === 'squat' ? 128 : (exerciseId === 'jumping_jack' ? 85 : (exerciseId === 'curl' ? 108 : (exerciseId === 'pushup' ? 118 : 128)));
+
+  let peak;
+  if (options.mode === 'standard') {
+    // Pure standard mode: every cycle reaches 100% full textbook target depth across all difficulties (MODE-02)
+    peak = full;
+  } else if (options.mode === 'fault') {
+    // Fault mode: only squat, curl, lunge & pushup fault 1 are shallow reps; jumping jack faults keep full peak depth (MODE-01)
+    const isShallow = options.faultId?.includes('shallow') ||
+      ((exerciseId === 'squat' || exerciseId === 'curl' || exerciseId === 'lunge' || exerciseId === 'pushup') && options.faultIndex === 1);
+    peak = isShallow ? partial : full;
+  } else {
+    // Backward compatibility for existing unit tests & automated benchmarks
+    peak = cycle % 4 === 2 ? partial : (exerciseId === 'curl' ? 52 : (exerciseId === 'jumping_jack' ? 168 : (exerciseId === 'pushup' ? 87 : (exerciseId === 'lunge' ? 102 : 91))));
+  }
+
+  const standing = exerciseId === 'jumping_jack' ? 25 : (exerciseId === 'pushup' ? 165 : 174);
+  if (exerciseId === 'jumping_jack') {
+    if (t < .18) return standing;
+    if (t < .46) return standing + (peak - standing) * smooth5((t - .18) / .28);
+    if (t < .57) return peak;
+    if (t < .86) return peak - (peak - standing) * smooth5((t - .57) / .29);
+    return standing;
+  }
+
+  if (t < .18) return standing;
+  if (t < .46) return standing - (standing - peak) * easing((t-.18)/.28, -0.28);
+  if (t < .57) return peak;
+  if (t < .86) return peak + (standing-peak) * easing((t-.57)/.29, 0.28);
+  return standing;
 }
 
-function render(){
-  const ex=$('exerciseSelect').value;
-  const ix=Number($('variant').value)||0;
-  const diff=$('difficulty').value;
-  const normal=simulatePose(clockMs,ex,{mode:'standard',difficulty:diff});
-  const faulty=simulatePose(clockMs,ex,{mode:'fault',faultIndex:ix,difficulty:diff});
-
-  const normAngleObj=extractJointAngle(normal,ex);
-  const faultAngleObj=extractJointAngle(faulty,ex);
-  const normAng=normAngleObj?.angle??simulatedAngle(clockMs,ex,{mode:'standard',difficulty:diff});
-  const faultAng=faultAngleObj?.angle??simulatedAngle(clockMs,ex,{mode:'fault',faultIndex:ix,difficulty:diff});
-
-  drawPose($('good'),normal,{demoExercise:ex,width:960,height:540,angle:normAng,time:clockMs,
-    label:'SYNTHETIC MOTION · STANDARD'});
-  drawPose($('fault'),faulty,{demoExercise:ex,width:960,height:540,angle:faultAng,time:clockMs,
-    label:'SYNTHETIC MOTION · INTENTIONAL FAULT'});
-
-  $('goodArm').textContent=`${normAng.toFixed(1)}°`;
-  $('badArm').textContent=`${faultAng.toFixed(1)}°`;
-  const legRatio=getLegSpreadRatio(normal);
-  $('goodLeg').textContent=legRatio!==null?`${legRatio.toFixed(2)}×`:`${normAngleObj?.side||'--'}`;
-  $('badLeg').textContent=faultAngleObj?.side||'--';
-
-  const alarm=checkPostureFault(faulty,ex,'左侧');
-  $('alarm').textContent=alarm?.code||'—';
-
-  const faultList=FAULTS[ex]||FAULTS.jumping_jack;
-  $('faultName').textContent=`! 错误 0${ix+1} · ${faultList[ix]||'常见错误'}`;
-  $('scrub').value=clockMs;
-  $('clock').textContent=`${(clockMs/1000).toFixed(2)} / 4.70s`;
+// Use C2-continuous quintic interpolation for a natural build-up and recoil.
+// Unlike a hard time gate, both displacement and velocity go to zero at the edges.
+function smooth5(u) {
+  const x = Math.max(0, Math.min(1, u));
+  return x * x * x * (x * (6 * x - 15) + 10);
 }
 
-function tick(now){if(playing)clockMs=(clockMs+Math.min(50,now-last))%4700;last=now;render();requestAnimationFrame(tick)}
-$('exerciseSelect').onchange=()=>{updateVariants();clockMs=0;render();};
-$('variant').onchange=()=>{clockMs=0;render()};
-$('difficulty').onchange=()=>{clockMs=0;render()};
-$('play').onclick=()=>{playing=!playing;$('play').textContent=playing?'⏸ 暂停':'▶ 播放'};
-$('reset').onclick=()=>{clockMs=0;render()};
-$('scrub').oninput=()=>{clockMs=Number($('scrub').value);playing=false;$('play').textContent='▶ 播放';render()};
+function faultEnvelope(t, onset, apexIn, apexOut, recovery) {
+  return smooth5((t - onset) / (apexIn - onset)) *
+    (1 - smooth5((t - apexOut) / (recovery - apexOut)));
+}
+
+function activeFault(exerciseId, options, cycle) {
+  if (options.mode === 'standard') return null;
+  if (options.mode !== 'fault') return options.simulateFault && cycle % 4 === 1 ? (exerciseId === 'jumping_jack' ? 1 : 0) : null;
+  const known = {
+    squat: { trunk_lean: 0, shallow_squat: 1 },
+    curl: { arm_swing: 0, shallow_curl: 1 },
+    jumping_jack: { asymmetry_or_desync: 0, arm_asymmetry: 1, static_legs: 2 },
+    lunge: { knee_over_toes: 0, shallow_lunge: 1 },
+    pushup: { sagging_hips: 0, shallow_pushup: 1 },
+  };
+  return options.faultIndex ?? known[exerciseId]?.[options.faultId] ?? 0;
+}
+
+// Every 2-D segment is solved using *real 960x540 projection pixels*, then
+// normalized once when constructing the MediaPipe-style 33 landmarks.
+const JACK = Object.freeze({
+  width: 960, height: 540,
+  centerX: 480,
+  hipHalfWidth: 45, shoulderHalfWidth: 57,
+  hipRestY: 285, shoulderAboveHip: 113, ankleRestY: 494,
+  thigh: 101, shin: 110, upperArm: 76, forearm: 76,
+  foot: 25, heel: 13,
+  ankleHalfWidthClosed: 44, ankleAdditionalSpread: 91,
+});
+
+// A quintic rise and fall: no sudden positional / velocity / acceleration
+// changes at either transition. All phases repeat identically every 4700 ms.
+function jackPulse(t, start, riseEnd, fallStart, end) {
+  return smooth5((t - start) / (riseEnd - start)) *
+    (1 - smooth5((t - fallStart) / (end - fallStart)));
+}
+
+// 2-circle intersection: |root-joint|=L1 and |joint-target|=L2 *exactly*.
+// bendSign selects the outward/anatomical knee or elbow branch, never stretches.
+function rigidTwoLink(root, target, L1, L2, bendSign) {
+  const vx = target.x - root.x, vy = target.y - root.y;
+  const d = Math.hypot(vx, vy);
+  // The simulator's dimensions guarantee a reachable target; explicit guard
+  // catches accidental changes to envelope / amplitude in future edits.
+  if (d < Math.abs(L1 - L2) + 1e-8 || d > L1 + L2 + 1e-8) {
+    throw new RangeError(`Unreachable rigid limb target: distance ${d.toFixed(3)}, links ${L1}+${L2}`);
+  }
+  const ux = vx / d, uy = vy / d;
+  const along = (L1 * L1 - L2 * L2 + d * d) / (2 * d);
+  const perpendicular = Math.sqrt(Math.max(0, L1 * L1 - along * along));
+  return {
+    x: root.x + along * ux - bendSign * perpendicular * uy,
+    y: root.y + along * uy + bendSign * perpendicular * ux,
+  };
+}
+
+function simulateJumpingJack(elapsedMs, options, activeFaultIndex, t, angleDeg) {
+  const p = blank();
+  const C = JACK;
+  const isDesync = activeFaultIndex === 0;
+  const isAsym = activeFaultIndex === 1;
+  const isStatic = activeFaultIndex === 2;
+
+  // Normal arms and legs travel together. In desync mode, the legs take off
+  // after the arms are already high, then expand as the arms come down.
+  const armProgress = jackPulse(t, 0.18, 0.46, 0.57, 0.86);
+  const legProgress = isStatic ? 0 : isDesync
+    ? jackPulse(t, 0.59, 0.77, 0.80, 0.97)
+    : jackPulse(t, 0.18, 0.46, 0.54, 0.82);
+  const lift = isStatic ? 0 : isDesync
+    ? jackPulse(t, 0.60, 0.76, 0.80, 0.94)
+    : jackPulse(t, 0.22, 0.46, 0.52, 0.79);
+  // Gentle anticipation squat and landing absorption. In static-legs mode
+  // this reads as an in-place weight shift with genuinely planted feet.
+  const preparation = jackPulse(t, 0.11, 0.21, 0.25, 0.34);
+  const landing = isStatic ? 0 : isDesync
+    ? jackPulse(t, 0.89, 0.95, 0.96, 0.99)
+    : jackPulse(t, 0.76, 0.83, 0.85, 0.90);
+  const hipY = C.hipRestY + 6 * preparation + 5 * landing - 11 * lift;
+  const shoulderY = hipY - C.shoulderAboveHip;
+  const ankleY = C.ankleRestY - 31 * lift;
+  const hipLeft = { x: C.centerX - C.hipHalfWidth, y: hipY };
+  const hipRight = { x: C.centerX + C.hipHalfWidth, y: hipY };
+  const shoulderLeft = { x: C.centerX - C.shoulderHalfWidth, y: shoulderY };
+  const shoulderRight = { x: C.centerX + C.shoulderHalfWidth, y: shoulderY };
+  const ankleLeft = { x: C.centerX - C.ankleHalfWidthClosed - C.ankleAdditionalSpread * legProgress, y: ankleY };
+  const ankleRight = { x: C.centerX + C.ankleHalfWidthClosed + C.ankleAdditionalSpread * legProgress, y: ankleY };
+  const kneeLeft = rigidTwoLink(hipLeft, ankleLeft, C.thigh, C.shin, +1);
+  const kneeRight = rigidTwoLink(hipRight, ankleRight, C.thigh, C.shin, -1);
+
+  // Only right arm lags in fault #1. Attenuation is a continuous envelope,
+  // never a frame-gated jump or a replacement of the shoulder joint.
+  const lag = isAsym ? faultEnvelope(t, 0.28, 0.45, 0.58, 0.80) : 0;
+  const leftDeg = angleDeg;
+  const rightDeg = 25 + (angleDeg - 25) * (1 - 0.52 * lag);
+  // A modest elbow bend becomes visible when the arms rise. Wrist direction
+  // is the exact shoulder-hip measurement angle in PIXEL space; both bones
+  // retain constant lengths as the elbow is solved by analytic two-link IK.
+  const putArm = (shoulder, deg, side, si, ei, wi) => {
+    // The anatomical torso has 12px of lateral shoulder-to-hip offset.
+    // Subtract this from the world-space sweep so that the *actual* pixel
+    // shoulder angle against the shoulder-to-hip vector equals `deg`.
+    const torsoOffset = Math.atan2(C.shoulderHalfWidth - C.hipHalfWidth, C.shoulderAboveHip);
+    const theta = deg * Math.PI / 180 - torsoOffset;
+    const bend = (170 - 6 * armProgress) * Math.PI / 180;
+    const reach = Math.sqrt(C.upperArm ** 2 + C.forearm ** 2 -
+      2 * C.upperArm * C.forearm * Math.cos(bend));
+    const wrist = {
+      x: shoulder.x + side * reach * Math.sin(theta),
+      y: shoulder.y + reach * Math.cos(theta),
+    };
+    const elbow = rigidTwoLink(shoulder, wrist, C.upperArm, C.forearm, side);
+    for (const [i, a] of [[si, shoulder], [ei, elbow], [wi, wrist]]) {
+      put(p, i, a.x / C.width, a.y / C.height);
+    }
+  };
+  putArm(shoulderLeft, leftDeg, -1, 11, 13, 15);
+  putArm(shoulderRight, rightDeg, +1, 12, 14, 16);
+
+  for (const [i, a] of [[23, hipLeft], [24, hipRight],
+    [25, kneeLeft], [26, kneeRight], [27, ankleLeft], [28, ankleRight]]) {
+    put(p, i, a.x / C.width, a.y / C.height);
+  }
+  // Local feet rotate gently outward through the kick, with 25px toes and
+  // 13px heels kept rigid to each ankle. Never stretch a foot to the floor.
+  const toeRad = (12 + 10 * legProgress) * Math.PI / 180;
+  for (const [ankle, toeId, heelId, side] of [
+    [ankleLeft, 29, 31, -1], [ankleRight, 30, 32, +1],
+  ]) {
+    const toe = { x: ankle.x + side * C.foot * Math.cos(toeRad), y: ankle.y + C.foot * Math.sin(toeRad) };
+    const heel = { x: ankle.x - side * C.heel * Math.cos(toeRad), y: ankle.y + C.heel * Math.sin(toeRad) };
+    put(p, toeId, toe.x / C.width, toe.y / C.height);
+    put(p, heelId, heel.x / C.width, heel.y / C.height);
+  }
+  // The head and the two shoulder-to-hip segments translate together as one
+  // rigid torso; its 59px neck offset is constant through the jump.
+  put(p, 0, C.centerX / C.width, (shoulderY - 59) / C.height);
+  return p;
+}
+
+// Side-view split squat / stationary lunge. Neither foot ever slides during a
+// repetition. We solve the FRONT knee by exact 2-link IK from the planted ankle
+// and the prescribed knee angle; the rear knee is then solved against its own
+// planted ankle, so all four long-bone lengths remain independently rigid.
+// Standard and fault #0 use different *initial stances*: a shorter step is a
+// natural contributor to front-knee travel, not a foot teleport mid-rep.
+function simulateLunge(elapsedMs, options, activeFaultIndex, t, angleDeg, kneeDrive) {
+  const p = blank();
+  const W = 960, H = 540;
+  const THIGH = 113.4, SHIN = 118.8, TORSO = 124.2;
+  const UPPER = 76.0, FOREARM = 76.0;
+  const RAD = Math.PI / 180;
+  const depth = Math.max(0, Math.min(1, (174 - angleDeg) / (174 - 90)));
+  const faultyStance = activeFaultIndex === 0;
+
+  const frontAnkle = { x: 626, y: 450 }; // stance faces image-right
+  const rearAnkle = { x: faultyStance ? 455 : 355, y: 450 };
+  // The knee angle uniquely fixes the hip-to-ankle reach by the cosine law.
+  // Hip azimuth controls weight transfer independently without compromising it.
+  const reach = Math.sqrt(THIGH * THIGH + SHIN * SHIN -
+    2 * THIGH * SHIN * Math.cos(angleDeg * RAD));
+  const healthyAzimuth = 38 + 7 * depth;
+  const azimuth = (healthyAzimuth + (13 - healthyAzimuth) * kneeDrive) * RAD;
+  const hip = {
+    x: frontAnkle.x - reach * Math.sin(azimuth),
+    y: frontAnkle.y - reach * Math.cos(azimuth),
+  };
+  const frontKnee = rigidTwoLink(hip, frontAnkle, THIGH, SHIN, -1);
+  // In a healthy long split stance the trailing knee drops towards the floor.
+  // In the short-step fault it remains high as weight lurches over the lead toe.
+  const rearKnee = rigidTwoLink(hip, rearAnkle, THIGH, SHIN, faultyStance ? +1 : -1);
+
+  // The entire rib-cage pivots about the hip: forward knee-drive is coupled to
+  // trunk compensation but neither spine nor upper limbs can change length.
+  const torsoTilt = (3 + 6 * depth + 32 * kneeDrive) * RAD;
+  const shoulder = {
+    x: hip.x + TORSO * Math.sin(torsoTilt),
+    y: hip.y - TORSO * Math.cos(torsoTilt),
+  };
+  const head = {
+    x: shoulder.x + 50 * Math.sin(torsoTilt) + 8 * Math.cos(torsoTilt),
+    y: shoulder.y - 50 * Math.cos(torsoTilt) + 8 * Math.sin(torsoTilt),
+  };
+
+  // Natural arms: mild shoulder swing and elbow flexion; wrists finish near
+  // the belt-line rather than acting like an implausible single straight rod.
+  const upperTilt = (8 + 12 * depth + 6 * kneeDrive) * RAD;
+  const foreTilt = (-32 - 13 * depth - 6 * kneeDrive) * RAD;
+  const elbow = {
+    x: shoulder.x + UPPER * Math.sin(upperTilt),
+    y: shoulder.y + UPPER * Math.cos(upperTilt),
+  };
+  const wrist = {
+    x: elbow.x + FOREARM * Math.sin(foreTilt),
+    y: elbow.y + FOREARM * Math.cos(foreTilt),
+  };
+
+  const set = (id, pt, visibility = 0.99) => {
+    p[id] = { x: pt.x / W, y: pt.y / H, visibility };
+  };
+  const near = [
+    [23, hip], [25, frontKnee], [27, frontAnkle],
+    [11, shoulder], [13, elbow], [15, wrist],
+  ];
+  for (const [i, pt] of near) set(i, pt);
+  // View-depth offset is applied to an ENTIRE chain, not individual joints.
+  // This preserves exact lengths on the far side as well as the near side.
+  const FAR = { x: 18, y: -3 };
+  for (const [i, pt] of [
+    [24, hip], [26, rearKnee], [28, rearAnkle],
+    [12, shoulder], [14, elbow], [16, wrist],
+  ]) {
+    set(i, { x: pt.x + FAR.x, y: pt.y + FAR.y }, 0.90);
+  }
+  // Fixed-length, planted feet (rear heel and front toes point forward).
+  // Translation of the rear foot into its *initial* stance is not animated.
+  const frontToe = { x: frontAnkle.x + 32, y: frontAnkle.y + 6 };
+  const frontHeel = { x: frontAnkle.x - 16, y: frontAnkle.y + 4 };
+  const rearToe = { x: rearAnkle.x + 30, y: rearAnkle.y + 6 };
+  const rearHeel = { x: rearAnkle.x - 16, y: rearAnkle.y + 4 };
+  set(29, frontHeel); set(31, frontToe);
+  set(30, { x: rearHeel.x + FAR.x, y: rearHeel.y + FAR.y }, 0.90);
+  set(32, { x: rearToe.x + FAR.x, y: rearToe.y + FAR.y }, 0.90);
+  set(0, head);
+  return p;
+}
+
+// Full-body push-up with both contact points fixed. The elbows fold towards
+// the FEET (not past the hands). Hip sag is the exact two-circle IK branch of a
+// rigid torso and straight rigid legs, never a direct pixel displacement.
+function simulatePushup(elapsedMs, options, activeFaultIndex, t, angleDeg, sagEnvelope) {
+  const p = blank();
+  const W = 960, H = 540;
+  const UPPER = 92, FOREARM = 88, TORSO = 145, THIGH = 115, SHIN = 110;
+  const LEG = THIGH + SHIN;
+  const BODY = LEG + TORSO;
+  const RAD = Math.PI / 180;
+  const ankle = { x: 240, y: 445 }; // planted rear foot
+  const wrist = { x: 600, y: 460 }; // planted palm
+
+  // Exact distance between shoulder and wrist for the target elbow angle.
+  const armReach = Math.sqrt(UPPER * UPPER + FOREARM * FOREARM -
+    2 * UPPER * FOREARM * Math.cos(angleDeg * RAD));
+  // Sag compresses the ankle-to-shoulder span (NOT any individual bone).
+  // 12.5px gives ~30.6deg of downward hip break at peak, past the 25deg
+  // posture threshold while the pelvis remains visibly above the floor.
+  // IMPORTANT: IK near the fully straight body has a square-root branch.
+  // Squaring the quintic envelope makes the actual hip excursion O(envelope),
+  // retaining C2 positional smoothness at both fade-in and fade-out.
+  const bodyReach = BODY - 12.5 * sagEnvelope * sagEnvelope;
+  const shoulder = rigidTwoLink(ankle, wrist, bodyReach, armReach, -1);
+  const elbow = rigidTwoLink(shoulder, wrist, UPPER, FOREARM, +1);
+  const hip = sagEnvelope < 1e-12
+    ? { x: ankle.x + (LEG / BODY) * (shoulder.x - ankle.x),
+        y: ankle.y + (LEG / BODY) * (shoulder.y - ankle.y) }
+    : rigidTwoLink(ankle, shoulder, LEG, TORSO, +1);
+  // Knee is fixed on the straight ankle-to-hip link. A small knee flexion can
+  // later be introduced by another 2-link solve without moving the contacts.
+  const knee = {
+    x: ankle.x + (SHIN / LEG) * (hip.x - ankle.x),
+    y: ankle.y + (SHIN / LEG) * (hip.y - ankle.y),
+  };
+  const torsoAxis = Math.atan2(shoulder.y - hip.y, shoulder.x - hip.x);
+  const head = {
+    x: shoulder.x + 45 * Math.cos(torsoAxis),
+    y: shoulder.y + 45 * Math.sin(torsoAxis),
+  };
+
+  const set = (id, pt, v = 0.99) => {
+    p[id] = { x: pt.x / W, y: pt.y / H, visibility: v };
+  };
+  const near = [[11, shoulder], [13, elbow], [15, wrist],
+    [23, hip], [25, knee], [27, ankle]];
+  for (const [id, pt] of near) set(id, pt);
+  // Duplicate the far silhouette with ONE rigid view-depth transform for
+  // every joint. This also fixes the original far-side limb-length drift.
+  const FAR = { x: -13, y: -9 };
+  for (const [i, pt] of [[12, shoulder], [14, elbow], [16, wrist],
+    [24, hip], [26, knee], [28, ankle]]) {
+    set(i, { x: pt.x + FAR.x, y: pt.y + FAR.y }, 0.90);
+  }
+  const toe = { x: ankle.x - 26, y: ankle.y + 13 };
+  const heel = { x: ankle.x + 13, y: ankle.y - 6 };
+  set(29, heel); set(31, toe);
+  set(30, { x: heel.x + FAR.x, y: heel.y + FAR.y }, 0.90);
+  set(32, { x: toe.x + FAR.x, y: toe.y + FAR.y }, 0.90);
+  set(0, head);
+  return p;
+}
+
+function simulatePose(elapsedMs, exerciseId, options = {}) {
+  const period = 4700;
+  const cycle = Math.floor(elapsedMs / period);
+  const t = (elapsedMs % period) / period;
+
+  const activeFaultIndex = activeFault(exerciseId, options, cycle);
+  const squatLean = activeFaultIndex === 0 && exerciseId === 'squat'
+    ? faultEnvelope(t, 0.29, 0.46, 0.56, 0.73) : 0;
+  const curlSwing = activeFaultIndex === 0 && exerciseId === 'curl'
+    ? faultEnvelope(t, 0.30, 0.48, 0.54, 0.72) : 0;
+  const lungeKneeOverToes = activeFaultIndex === 0 && exerciseId === 'lunge'
+    ? faultEnvelope(t, 0.29, 0.46, 0.56, 0.73) : 0;
+  const pushupSaggingHips = activeFaultIndex === 0 && exerciseId === 'pushup'
+    ? faultEnvelope(t, 0.29, 0.46, 0.56, 0.73) : 0;
+
+  const points = blank();
+  const angleDeg = simulatedAngle(elapsedMs, exerciseId, options);
+  const angle = angleDeg * Math.PI / 180;
+
+  if (exerciseId === 'jumping_jack') {
+    return simulateJumpingJack(elapsedMs, options, activeFaultIndex, t, angleDeg);
+  } else if (exerciseId === 'lunge') {
+    return simulateLunge(elapsedMs, options, activeFaultIndex, t, angleDeg, lungeKneeOverToes);
+  } else if (exerciseId === 'pushup') {
+    return simulatePushup(elapsedMs, options, activeFaultIndex, t, angleDeg, pushupSaggingHips);
+  } else if (exerciseId === 'squat') {
+    const squatRatio = Math.max(0, Math.min(1, (174 - angleDeg) / (174 - 91)));
+    const W = 960, H = 540;
+    const L_SHIN = 118.8, L_THIGH = 113.4, L_TORSO = 124.2, L_ARM = 91.8;
+    const ankleX = W * 0.52, ankleY = H * 0.86;
+
+    // Inverse kinematics from the fixed supporting foot. Each child is defined
+    // with cos/sin from its *parent*, never by independently moving endpoints.
+    const shinTilt = (3 + 17 * squatRatio) * Math.PI / 180;
+    const kneeX = ankleX - L_SHIN * Math.sin(shinTilt);
+    const kneeY = ankleY - L_SHIN * Math.cos(shinTilt);
+    const directionKneeToAnkle = Math.atan2(ankleY - kneeY, ankleX - kneeX);
+    const directionKneeToHip = directionKneeToAnkle - angle;
+    const hipX = kneeX + L_THIGH * Math.cos(directionKneeToHip);
+    const hipY = kneeY + L_THIGH * Math.sin(directionKneeToHip);
+
+    // The normal bottom position retains the 20°/22° double-parallel law.
+    // In the fault, the *same rigid torso* folds progressively to 60°:
+    // shoulder drops and travels forward around the hip instead of teleporting.
+    const normalTorsoTilt = 3 + 19 * squatRatio;
+    const faultyTorsoTilt = normalTorsoTilt + (60 - normalTorsoTilt) * squatLean;
+    const torsoRad = faultyTorsoTilt * Math.PI / 180;
+    const shoulderX = hipX - L_TORSO * Math.sin(torsoRad);
+    const shoulderY = hipY - L_TORSO * Math.cos(torsoRad);
+
+    // Arms counterbalance from a fixed shoulder with exactly 91.8 px reach.
+    // More forward pointing at the fold reads naturally without elbow stretch.
+    const armRad = (25 + 65 * squatRatio + 7 * squatLean) * Math.PI / 180;
+    const elbowX = shoulderX - 0.5 * L_ARM * Math.sin(armRad);
+    const elbowY = shoulderY + 0.5 * L_ARM * Math.cos(armRad);
+    const wristX = shoulderX - L_ARM * Math.sin(armRad);
+    const wristY = shoulderY + L_ARM * Math.cos(armRad);
+
+    // Head follows torso rotation, with a constant 2D neck length (50,8).
+    const headX = shoulderX - 50 * Math.sin(torsoRad) - 8 * Math.cos(torsoRad);
+    const headY = shoulderY - 50 * Math.cos(torsoRad) + 8 * Math.sin(torsoRad);
+
+    const far = 19.2; // far-side silhouette offset; preserves both limb lengths
+    put(points, 23, hipX/W, hipY/H); put(points, 24, (hipX+far)/W, hipY/H);
+    put(points, 25, kneeX/W, kneeY/H); put(points, 26, (kneeX+far)/W, kneeY/H);
+    put(points, 27, ankleX/W, ankleY/H); put(points, 28, (ankleX+far)/W, ankleY/H);
+    put(points, 29, (ankleX+24)/W, (ankleY+5.4)/H);
+    put(points, 30, (ankleX+24+far)/W, (ankleY+5.4)/H);
+    put(points, 31, (ankleX-38.4)/W, (ankleY+5.4)/H);
+    put(points, 32, (ankleX-38.4+far)/W, (ankleY+5.4)/H);
+    put(points, 11, shoulderX/W, shoulderY/H); put(points, 12, (shoulderX+far)/W, shoulderY/H);
+    put(points, 13, elbowX/W, elbowY/H); put(points, 14, (elbowX+far)/W, elbowY/H);
+    put(points, 15, wristX/W, wristY/H); put(points, 16, (wristX+far)/W, wristY/H);
+    put(points, 0, headX/W, headY/H);
+  } else {
+    // Curl is now solved in actual 960x540 pixel space, matching the squat.
+    // A 0.13 normalized horizontal drift is 124.8 px, not 0.13*540 px.
+    const W = 960, H = 540;
+    const shoulderX = 0.52 * W, shoulderY = 0.28 * H;
+    const L_UPPER = 150.0, L_FOREARM = 128.0, L_TORSO = 145.8;
+    const oppositeX = shoulderX - 36;
+    const hipY = shoulderY + L_TORSO;
+    const kneeY = 0.72 * H, ankleY = 0.88 * H;
+
+    put(points, 11, shoulderX/W, shoulderY/H);
+    put(points, 12, oppositeX/W, shoulderY/H);
+    put(points, 0, (shoulderX-18)/W, (shoulderY-54)/H);
+    put(points, 23, shoulderX/W, hipY/H); put(points, 24, oppositeX/W, hipY/H);
+    put(points, 25, shoulderX/W, kneeY/H); put(points, 26, oppositeX/W, kneeY/H);
+    put(points, 27, shoulderX/W, ankleY/H); put(points, 28, oppositeX/W, ankleY/H);
+    put(points, 29, (shoulderX-20)/W, (ankleY+7)/H);
+    put(points, 30, (oppositeX-20)/W, (ankleY+7)/H);
+    // Resting opposite arm: fixed upper arm and forearm lengths.
+    put(points, 14, oppositeX/W, (shoulderY + L_UPPER)/H);
+    put(points, 16, oppositeX/W, (shoulderY + L_UPPER + L_FOREARM)/H);
+
+    // Cheating curl: shoulder-to-elbow bone rotates as a rigid 150px link.
+    // Neutral ~5.5° -> peak ~55°, elbow drifts ~123px, passing 0.11 threshold.
+    // Curl angular ROM still controls shoulder-elbow-wrist articulation exactly.
+    const upperTilt = (5.5 + 49.5 * curlSwing) * Math.PI / 180;
+    const elbowX = shoulderX + L_UPPER * Math.sin(upperTilt);
+    const elbowY = shoulderY + L_UPPER * Math.cos(upperTilt);
+    const fromElbowToShoulder = Math.atan2(shoulderY - elbowY, shoulderX - elbowX);
+    const forearmDirection = fromElbowToShoulder + angle;
+    const wristX = elbowX + L_FOREARM * Math.cos(forearmDirection);
+    const wristY = elbowY + L_FOREARM * Math.sin(forearmDirection);
+    put(points, 13, elbowX/W, elbowY/H);
+    put(points, 15, wristX/W, wristY/H);
+  }
+  return points;
+}
+
+return { simulatePose, simulatedAngle };
+})();
+
+const { checkPostureFault, extractJointAngle, EXERCISE_GUIDES, toPixelPoint } = (() => {
+// Embedded src/exercise.js (generated; edit src/exercise.js, not this block)
+/** Pure, testable exercise logic. No camera or DOM dependencies. */
+const EXERCISES = Object.freeze({
+  squat: {
+    id: 'squat', name: '深蹲', english: 'SQUAT', joint: '膝关节', camera: '侧面机位 · 全身入镜',
+    guidance: '侧身对着摄像头，确保髋、膝、踝可见。保持自然呼吸，不要强迫达到示例角度。',
+    extended: 155, started: 142, full: 110, direction: 'bend',
+  },
+  curl: {
+    id: 'curl', name: '哑铃弯举', english: 'BICEP CURL', joint: '肘关节', camera: '侧面机位 · 单侧上肢入镜',
+    guidance: '单侧手臂面向镜头，肩、肘、腕清晰可见。第一版仅统计较清晰的一侧。',
+    extended: 155, started: 128, full: 65, direction: 'bend',
+  },
+  jumping_jack: {
+    id: 'jumping_jack', name: '开合跳', english: 'JUMPING JACK', joint: '双臂展角', camera: '正面机位 · 全身入镜',
+    guidance: '正对摄像头，全身入镜。起跳时双臂向上舒展，落地时双臂与双腿自然收回。',
+    extended: 35, started: 55, full: 130, direction: 'expand',
+  },
+  lunge: {
+    id: 'lunge', name: '弓步', english: 'LUNGE', joint: '前膝关节', camera: '侧面机位 · 全身入镜',
+    guidance: '侧身对准镜头，双脚前后开立。下蹲时保持躯干笔直中立，前膝屈曲至大腿近水平。',
+    extended: 160, started: 145, full: 105, direction: 'bend',
+  },
+  pushup: {
+    id: 'pushup', name: '俯卧撑', english: 'PUSH-UP', joint: '肘关节', camera: '侧面机位 · 全身俯卧入镜',
+    guidance: '侧身俯卧面向镜头，从头到脚跟呈一条直线。屈臂下压至胸口接近地面，伸臂撑起。',
+    extended: 160, started: 142, full: 90, direction: 'bend',
+  },
+});
+
+const DIFFICULTY_PRESETS = Object.freeze({
+  beginner: { name: '初学', squat: 122, curl: 80, jumping_jack: 115, lunge: 118, pushup: 105 },
+  standard: { name: '标准', squat: 110, curl: 65, jumping_jack: 130, lunge: 105, pushup: 90 },
+  advanced: { name: '进阶', squat: 95, curl: 50, jumping_jack: 145, lunge: 92, pushup: 75 },
+});
+
+const EXERCISE_GUIDES = Object.freeze({
+  squat: {
+    standard: {
+      title: '深蹲 · 标准动作要领示范',
+      summary: '屈髋沉髋、双线平行、膝顺脚尖、大腿达标。',
+      cues: [
+        { label: '双平行线法则', desc: '下蹲到底时，小腿前倾角（约 20°）与脊柱躯干倾角（约 22°）保持相互平行。' },
+        { label: '下潜深度达标', desc: '大腿下潜屈曲至与地面平行（膝关节估计角度 ≤ 110°），重心稳稳压在足弓正中。' },
+        { label: '双臂平举配重', desc: '双臂自然向前水平平举以维持前后力矩平衡，下蹲吸气、起立呼气。' }
+      ]
+    },
+    faults: [
+      {
+        id: 'trunk_lean',
+        tag: '常见错误 01',
+        name: '躯干过度前倾（鞠躬/塌背代偿）',
+        shortName: '过度前倾',
+        where: '下蹲时上半身前倾夹角超过 46°，胸口向下趴且过度靠近大腿，脊柱弯曲折叠。',
+        why: '下肢负荷大量转移到腰椎 L4-L5 与竖脊肌，产生巨大的腰椎剪切力，极易诱发急性腰扭伤或腰肌劳损，且臀大肌无法充分受力。',
+        correction: '双眼前视、挺胸沉肩，下蹲时保持背部平直与小腿双线平行，切勿以折腰弯背代替屈膝下蹲。',
+        aiRule: 'AI 检测到 shoulder-hip 躯干夹角 > 46°，实时触发 trunk_lean 姿态异常警报。'
+      },
+      {
+        id: 'shallow_squat',
+        tag: '常见错误 02',
+        name: '下蹲幅度过浅（半蹲偷懒/不达标）',
+        shortName: '幅度过浅',
+        where: '膝关节屈曲仅到 128°，大腿远未下潜到水平线（标准线 ≤ 110°）便匆忙折返起立。',
+        why: '无法有效激活臀大肌与腘绳肌，膝前侧髌韧带承受集中剪切压力，无法形成完整的向心与离心训练刺激。',
+        correction: '向后下方深坐，确保大腿至少平行地面，等待界面出现绿色达标提示后再发力蹬地起立。',
+        aiRule: 'AI 状态机识别最低折返点未触达 full 目标线，标记为未达标浅动作（不计入有效次数）。'
+      }
+    ]
+  },
+  curl: {
+    standard: {
+      title: '哑铃弯举 · 标准动作要领示范',
+      summary: '大臂夹紧贴身、前臂孤立收缩、顶峰挤压收紧。',
+      cues: [
+        { label: '大臂严格固定', desc: '大臂紧贴身体两侧垂直固定，全程不借助前后晃动冲量借力。' },
+        { label: '顶峰充分收缩', desc: '前臂绕肘关节平滑屈曲至胸前（肘内角 ≤ 65°），在顶峰挤压肱二头肌 1 秒。' },
+        { label: '躯干笔直中立', desc: '身体挺拔站立，双肩自然下沉，严禁向后仰腰或借腰椎力量后摆。' }
+      ]
+    },
+    faults: [
+      {
+        id: 'arm_swing',
+        tag: '常见错误 01',
+        name: '大臂前后甩动借力（肘部前耸代偿）',
+        shortName: '大臂借力',
+        where: '向上屈臂时肘关节未固定在身体侧面，大臂向前晃动漂移（水平漂移量 > 0.11）。',
+        why: '依靠上身冲量甩起重量，三角肌前束大幅借力代偿，导致肱二头肌失去离心张力，易拉伤肩袖。',
+        correction: '如钢管般将大臂夹紧在肋骨两侧，仅允许小臂孤立旋转，重量过大时宜主动减轻负重。',
+        aiRule: 'AI 检测到 elbow-shoulder 水平漂移量 > 0.11，实时触发 arm_swing 姿态借力警报。'
+      },
+      {
+        id: 'shallow_curl',
+        tag: '常见错误 02',
+        name: '弯举幅度不完整（半程小臂抖动）',
+        shortName: '幅度不足',
+        where: '前臂上拉未到顶（屈曲内角仅到 108°，未达到达标线 ≤ 65°）即匆忙下放。',
+        why: '肱二头肌未能进入最强的顶峰收缩区间，无法刺激深层肌纤维，力量强化与增肌效果大打折扣。',
+        correction: '将重量平稳收至贴近胸前高度，下放时完全伸直手臂完成一次完整收缩周期。',
+        aiRule: 'AI 状态机识别最小屈曲内角未达 full 达标线，拦截并提示本次幅度未达演示阈值（不计数）。'
+      }
+    ]
+  },
+  jumping_jack: {
+    standard: {
+      title: '开合跳 · 标准动作要领示范',
+      summary: '双臂自然举过头顶呈 V 形、双腿同拍展开、起跳与落地屈膝缓冲。',
+      cues: [
+        { label: '四肢时序同步', desc: '双臂向头顶上方画弧举起（≥ 130°），同时双脚跳开（≥ 1.65× 髋距），不需强迫双手击掌。' },
+        { label: '落地屈膝减震', desc: '前脚掌轻盈点地，膝关节自然微屈以吸收地面反冲力，保护踝膝关节。' },
+        { label: '标准闭环归位', desc: '下落时双臂回落贴身、双腿并拢，每轮均从双脚并拢站立位开始。' }
+      ]
+    },
+    faults: [
+      {
+        id: 'asymmetry_or_desync',
+        tag: '常见错误 01',
+        name: '双臂与双腿不同步（动作节奏脱节）',
+        shortName: '手腿脱节',
+        where: '双腿提前收回并拢，而双臂仍停留在空中，或双臂上举时双腿未充分展开。',
+        why: '破坏有氧运动的动力链协同节律，重心频繁骤变容易导致单侧脚踝落地崴伤。',
+        correction: '心里默念节奏口诀，手脚同步向外展开，手脚同时落地收拢。',
+        aiRule: 'AI 状态机核验 armPeakLegSynchronized 失败，拦截判定为动作不同步（不予计数）。'
+      },
+      {
+        id: 'arm_asymmetry',
+        tag: '常见错误 02',
+        name: '双臂不对称展开（单侧滞后一高一低）',
+        shortName: '双臂不对称',
+        where: '左右手臂展角绝对差值 > 35°，一侧高举一侧滞后。',
+        why: '单侧肩关节活动度受限或左右肌力不均，长期不对称跳跃易导致脊柱受力倾斜。',
+        correction: '目视正前方镜面，双手在头顶正上方对称合拢或打拍，两侧发力均衡。',
+        aiRule: 'AI 检测到左右臂展角绝对差 > 35°，实时触发 arm_asymmetry 警报。'
+      },
+      {
+        id: 'static_legs',
+        tag: '常见错误 03',
+        name: '双腿偷懒未展开（仅晃动手臂假跳）',
+        shortName: '腿未展开',
+        where: '双脚始终并拢或展开幅度 < 1.65× 髋距，只有手臂在头顶晃动。',
+        why: '下肢大肌群（臀中肌、内收肌、股四头肌）完全未参与做功，失去全身有氧燃脂效果。',
+        correction: '向两侧轻快跳开至 1.5 倍肩宽，保证脚踝有清晰且充足的横向位移。',
+        aiRule: 'AI 下肢位移核验 peakLegSpread 达标失败，判定为伪造开合跳直接拦截（不计数）。'
+      }
+    ]
+  },
+  lunge: {
+    standard: {
+      title: '弓步 · 标准动作要领示范',
+      summary: '躯干垂直中立、前后双直角、前膝不冲脚尖、后膝悬垂点地。',
+      cues: [
+        { label: '双腿前后直角', desc: '下潜至前腿大腿平行地面、后腿膝关节微屈悬垂，前后双膝各呈约 90° 夹角。' },
+        { label: '躯干笔直垂直', desc: '脊柱保持中立向上延伸，核心肌群收紧，严禁前扑折腰或向后仰腹。' },
+        { label: '重心居中下沉', desc: '重心垂线平稳落在双脚跨距正中，前脚全脚掌抓地发力推起起立。' }
+      ]
+    },
+    faults: [
+      {
+        id: 'knee_over_toes',
+        tag: '常见错误 01',
+        name: '前膝过度前冲（前移超脚尖代偿）',
+        shortName: '膝盖前冲',
+        where: '下蹲时膝盖大幅度往前顶超过脚尖，脚后跟离地，躯干严重向前折扑。',
+        why: '髌骨关节受力过载，髌腱承受巨大的撕裂拉力，易诱发髌下脂肪垫炎或膝前绞锁疼痛。',
+        correction: '加大双脚前后步幅，下蹲时将重心垂直向下坐而非向前跪，使前侧小腿近乎垂直于地面。',
+        aiRule: 'AI 检测到前膝水平位移超出脚尖过多或躯干前倾角 > 35°，实时触发 knee_over_toes 姿态警报。'
+      },
+      {
+        id: 'shallow_lunge',
+        tag: '常见错误 02',
+        name: '弓步下潜过浅（半蹲偷懒/不达标）',
+        shortName: '幅度过浅',
+        where: '前膝屈曲仅至 125°，大腿远未下沉到水平线即匆忙折返起立。',
+        why: '臀大肌与股四头肌离心收缩刺激不足，难以有效激活下肢深层力量链。',
+        correction: '深沉髋部让后膝自然下沉逼近地面，观察界面达标提示后平稳起立。',
+        aiRule: 'AI 状态机识别最低折返点未触达 full 目标线，标记为未达标浅动作（不计有效次数）。'
+      }
+    ]
+  },
+  pushup: {
+    standard: {
+      title: '俯卧撑 · 标准动作要领示范',
+      summary: '平板支撑身姿、头肩髋踝一线、胸口贴地下沉、平稳推起。',
+      cues: [
+        { label: '躯干刚体一线', desc: '收紧核心与臀大肌，后脑勺、背部、臀部、脚跟自始至终呈一条平整的斜线。' },
+        { label: '胸口触地下潜', desc: '屈肘下沉直至胸口距地面约一拳高度（肘关节屈曲内角 ≤ 90°），肩胛骨平稳回缩。' },
+        { label: '推起顶峰撑展', desc: '双手掌跟均匀推地，伸直双臂顶起胸廓，避免手腕单侧受力。' }
+      ]
+    },
+    faults: [
+      {
+        id: 'sagging_hips',
+        tag: '常见错误 01',
+        name: '腰腹塌陷/撅臀代偿（平板脊柱折角）',
+        shortName: '塌腰代偿',
+        where: '下压或推起时腰椎无力下沉塌陷，或撅起屁股分担上肢负荷，身体呈弓形折角。',
+        why: '腰椎腰背筋膜受到异常剪切撕扯，导致腰背酸痛，同时胸大肌刺激大幅度被削弱。',
+        correction: '骨盆微后倾，腹肌与臀大肌如铁板般全程紧绷，严禁松腰或塌臀。',
+        aiRule: 'AI 检测到 shoulder-hip-ankle 三点折线夹角偏离 180° 超出 25°，实时触发 sagging_hips 警报。'
+      },
+      {
+        id: 'shallow_pushup',
+        tag: '常见错误 02',
+        name: '屈臂幅度不足（半程推起/假撑）',
+        shortName: '幅度不足',
+        where: '肘关节下屈仅到 118°，胸口距离地面甚远便草草撑起。',
+        why: '胸大肌和肱三头肌未进入有效做功行程，无法刺激肌肉充分撕裂与重塑。',
+        correction: '有控制地匀速下沉，让胸口接近地面标线后再发力推起。',
+        aiRule: 'AI 状态机识别最小屈曲内角未达 full 达标线，拦截并标记为浅动作（不予计数）。'
+      }
+    ]
+  }
+});
+
+function toPixelPoint(p, width = 960, height = 540) {
+  if (!p) return null;
+  if (p.x <= 2 && p.y <= 2) {
+    return { x: p.x * width, y: p.y * height, visibility: p.visibility };
+  }
+  return p;
+}
+
+function angleDegrees(a, b, c) {
+  if (![a, b, c].every(p => p && Number.isFinite(p.x) && Number.isFinite(p.y))) return null;
+  const abx = a.x - b.x; const aby = a.y - b.y;
+  const cbx = c.x - b.x; const cby = c.y - b.y;
+  const denom = Math.hypot(abx, aby) * Math.hypot(cbx, cby);
+  if (denom < 1e-7) return null;
+  const cos = Math.max(-1, Math.min(1, (abx * cbx + aby * cby) / denom));
+  return Math.acos(cos) * 180 / Math.PI;
+}
+
+function getLegSpreadMetrics(landmarks, visibilityThreshold = 0.35) {
+  if (!landmarks || landmarks.length < 29) return null;
+  const leftHip = landmarks[23], rightHip = landmarks[24];
+  const leftAnkle = landmarks[27], rightAnkle = landmarks[28];
+  if (!leftHip || !rightHip || !leftAnkle || !rightAnkle) return null;
+  const vis = Math.min(
+    leftHip.visibility ?? 1, rightHip.visibility ?? 1,
+    leftAnkle.visibility ?? 1, rightAnkle.visibility ?? 1
+  );
+  if (vis < visibilityThreshold) return null;
+  const hipDist = Math.hypot(rightHip.x - leftHip.x, rightHip.y - leftHip.y);
+  if (!Number.isFinite(hipDist) || hipDist < 0.02) return null;
+  const ankleDist = Math.hypot(rightAnkle.x - leftAnkle.x, rightAnkle.y - leftAnkle.y);
+  if (!Number.isFinite(ankleDist)) return null;
+  return {
+    ratio: ankleDist / hipDist,
+    ankleDist,
+    hipDist,
+    vis
+  };
+}
+
+function getLegSpreadRatio(landmarks, visibilityThreshold = 0.35) {
+  return getLegSpreadMetrics(landmarks, visibilityThreshold)?.ratio ?? null;
+}
+
+/** MediaPipe 33-landmark index convention. Supports side hysteresis & preferred side. */
+function extractJointAngle(landmarks, exerciseId, options = 0.6) {
+  if (!landmarks || landmarks.length < 33) return null;
+  const visibilityThreshold = typeof options === 'number' ? options : (options?.visibilityThreshold ?? 0.6);
+  const preferredSide = typeof options === 'string' ? options : (typeof options === 'object' ? options?.preferredSide : null);
+  const hysteresis = typeof options === 'object' ? (options?.hysteresis ?? 0.12) : 0.12;
+
+  if (exerciseId === 'jumping_jack') {
+    const leftPts = [23, 11, 15].map(i => landmarks[i]);
+    const rightPts = [24, 12, 16].map(i => landmarks[i]);
+    const leftValid = leftPts.every(p => p && Number.isFinite(p.x) && Number.isFinite(p.y) && (p.visibility ?? 1) >= visibilityThreshold);
+    const rightValid = rightPts.every(p => p && Number.isFinite(p.x) && Number.isFinite(p.y) && (p.visibility ?? 1) >= visibilityThreshold);
+
+    if (leftValid && rightValid) {
+      const leftAngle = angleDegrees(...leftPts.map(p => toPixelPoint(p)));
+      const rightAngle = angleDegrees(...rightPts.map(p => toPixelPoint(p)));
+      if (leftAngle === null || rightAngle === null || leftAngle < 5 || rightAngle < 5) return null;
+      const avg = Math.round((leftAngle + rightAngle) / 2);
+      const score = Math.min(...leftPts.concat(rightPts).map(p => p.visibility ?? 1));
+      return { angle: avg, confidence: score, side: '双侧', ids: [11, 12, 13, 14, 15, 16, 23, 24] };
+    } else if (leftValid) {
+      const angle = angleDegrees(...leftPts.map(p => toPixelPoint(p)));
+      if (angle === null || angle < 5) return null;
+      const score = Math.min(...leftPts.map(p => p.visibility ?? 1));
+      return { angle: Math.round(angle), confidence: score, side: '左侧', ids: [11, 13, 15, 23] };
+    } else if (rightValid) {
+      const angle = angleDegrees(...rightPts.map(p => toPixelPoint(p)));
+      if (angle === null || angle < 5) return null;
+      const score = Math.min(...rightPts.map(p => p.visibility ?? 1));
+      return { angle: Math.round(angle), confidence: score, side: '右侧', ids: [12, 14, 16, 24] };
+    }
+    return null;
+  }
+
+  const sideConfigs = (exerciseId === 'curl' || exerciseId === 'pushup')
+    ? [{ ids: [11, 13, 15], side: '左侧' }, { ids: [12, 14, 16], side: '右侧' }]
+    : [{ ids: [23, 25, 27], side: '左侧' }, { ids: [24, 26, 28], side: '右侧' }];
+
+  let candidates = [];
+  for (const { ids, side } of sideConfigs) {
+    const rawPts = ids.map(i => landmarks[i]);
+    if (rawPts.some(p => !p || !Number.isFinite(p.x) || !Number.isFinite(p.y) ||
+      (p.visibility ?? 1) < visibilityThreshold)) continue;
+    // Squat, curl, lunge and pushup use rigid links in the same 960x540 pixel coordinate system.
+    const pts = (exerciseId === 'squat' || exerciseId === 'curl' || exerciseId === 'lunge' || exerciseId === 'pushup')
+      ? rawPts.map(p => toPixelPoint(p)) : rawPts;
+    const angle = angleDegrees(...pts);
+    const score = Math.min(...rawPts.map(p => p.visibility ?? 1));
+    if (angle !== null) {
+      candidates.push({ angle, confidence: score, side, ids });
+    }
+  }
+
+  if (!candidates.length) return null;
+  if (candidates.length === 1) return candidates[0];
+
+  // If a side was previously preferred, require other side to exceed hysteresis threshold to switch.
+  if (preferredSide) {
+    const current = candidates.find(c => c.side === preferredSide);
+    const other = candidates.find(c => c.side !== preferredSide);
+    if (current && other) {
+      if (other.confidence > current.confidence + hysteresis) {
+        return other;
+      }
+      return current;
+    }
+    if (current) return current;
+  }
+
+  // Default: select the one with highest minimum landmark confidence
+  return candidates.sort((a, b) => b.confidence - a.confidence)[0];
+}
+
+/** Evaluates form quality and biomechanical risk factors (e.g. excessive trunk lean, arm swinging). */
+function checkPostureFault(landmarks, exerciseId, side = '左侧', options = {}) {
+  if (!landmarks || landmarks.length < 33) return null;
+  const isLeft = (side ?? '左侧') !== '右侧';
+
+  if (exerciseId === 'squat') {
+    const shoulder = landmarks[isLeft ? 11 : 12];
+    const hip = landmarks[isLeft ? 23 : 24];
+    if (!shoulder || !hip || (shoulder.visibility ?? 1) < 0.45 || (hip.visibility ?? 1) < 0.45) return null;
+    const shPx = toPixelPoint(shoulder);
+    const hipPx = toPixelPoint(hip);
+    const dx = Math.abs(shPx.x - hipPx.x);
+    const dy = hipPx.y - shPx.y; // shoulder is above hip in canvas coordinates, so dy > 0
+    if (dy <= 10) return null;
+    const trunkAngle = Math.atan2(dx, dy) * 180 / Math.PI;
+    // Excessive forward trunk lean beyond 46 degrees indicates rounding back / hip compensation
+    if (trunkAngle > 46) {
+      return { code: 'trunk_lean', message: '注意挺胸收腹，避免躯干过度前倾', value: Math.round(trunkAngle) };
+    }
+  } else if (exerciseId === 'curl') {
+    const shoulder = landmarks[isLeft ? 11 : 12];
+    const elbow = landmarks[isLeft ? 13 : 14];
+    if (!shoulder || !elbow || (shoulder.visibility ?? 1) < 0.45 || (elbow.visibility ?? 1) < 0.45) return null;
+    const horizontalDrift = Math.abs(elbow.x - shoulder.x);
+    // Noticeable upper arm drift away from vertical axis indicates momentum swinging
+    if (horizontalDrift > 0.11) {
+      return { code: 'arm_swing', message: '大臂尽量贴紧躯干，避免前后晃动借力', value: Math.round(horizontalDrift * 100) };
+    }
+  } else if (exerciseId === 'jumping_jack') {
+    const leftShoulder = landmarks[11], rightShoulder = landmarks[12];
+    const leftWrist = landmarks[15], rightWrist = landmarks[16];
+    const leftHip = landmarks[23], rightHip = landmarks[24];
+    if ([leftShoulder, rightShoulder, leftWrist, rightWrist, leftHip, rightHip]
+      .some(p => !p || (p.visibility ?? 1) < 0.45)) return null;
+
+    const leftArmAngle = angleDegrees(...[leftHip, leftShoulder, leftWrist].map(p => toPixelPoint(p)));
+    const rightArmAngle = angleDegrees(...[rightHip, rightShoulder, rightWrist].map(p => toPixelPoint(p)));
+    if (leftArmAngle !== null && rightArmAngle !== null) {
+      const asymmetry = Math.abs(leftArmAngle - rightArmAngle);
+      if (asymmetry > 35) {
+        return { code: 'arm_asymmetry', message: '双臂尽量对称舒展，避免单侧动作滞后', value: Math.round(asymmetry) };
+      }
+      // A single frame cannot distinguish delayed legs from legs that never
+      // moved. History is required to declare the static-legs fault, and it
+      // must be supplied by the analyzing state machine (not simulator tags).
+      if (options.completedCycle && options.hadArmAsymmetry) {
+        return { code: 'arm_asymmetry', message: '本轮左右手臂展开不对称', value: 1 };
+      }
+      if (options.completedCycle && Number.isFinite(options.peakLegSpread) &&
+          Number.isFinite(options.peakAnkleDist) && Number.isFinite(options.minAnkleDist)) {
+        if (options.peakLegSpread < 1.45 &&
+            options.peakAnkleDist - options.minAnkleDist < 0.035) {
+          return { code: 'static_legs', message: '双脚未充分跳开，请同步展开双腿', value: Math.round(options.peakLegSpread * 100) / 100 };
+        }
+        if (!options.armPeakLegSynchronized) {
+          return { code: 'asymmetry_or_desync', message: '手臂与双腿开合不同步，请保持同拍', value: Math.round(options.peakLegSpread * 100) / 100 };
+        }
+      }
+      const legSpread = getLegSpreadRatio(landmarks);
+      if (Math.min(leftArmAngle, rightArmAngle) > 132 && legSpread !== null && legSpread < 1.38) {
+        return { code: 'asymmetry_or_desync', message: '手臂已经举高，但双腿尚未同步展开', value: Math.round(legSpread * 100) / 100 };
+      }
+    }
+  } else if (exerciseId === 'lunge') {
+    const knee = landmarks[isLeft ? 25 : 26];
+    const ankle = landmarks[isLeft ? 27 : 28];
+    const shoulder = landmarks[isLeft ? 11 : 12];
+    const hip = landmarks[isLeft ? 23 : 24];
+    if (!knee || !ankle || !shoulder || !hip ||
+        (knee.visibility ?? 1) < 0.45 || (ankle.visibility ?? 1) < 0.45 ||
+        (shoulder.visibility ?? 1) < 0.45 || (hip.visibility ?? 1) < 0.45) return null;
+    const kneePx = toPixelPoint(knee);
+    const anklePx = toPixelPoint(ankle);
+    const shPx = toPixelPoint(shoulder);
+    const hipPx = toPixelPoint(hip);
+    const dxTorso = Math.abs(shPx.x - hipPx.x);
+    const dyTorso = hipPx.y - shPx.y;
+    const torsoLean = dyTorso > 10 ? Math.atan2(dxTorso, dyTorso) * 180 / Math.PI : 0;
+    // Side-view forward direction is defined by the planted foot's toe,
+    // not by an absolute knee/ankle offset: a knee BEHIND the ankle is not
+    // knee-over-toes. This prevents false alarms in a long split stance.
+    const toe = landmarks[isLeft ? 31 : 32];
+    const toePx = toe && (toe.visibility ?? 1) >= 0.45 ? toPixelPoint(toe) : null;
+    const facing = toePx && Math.abs(toePx.x - anklePx.x) > 4
+      ? Math.sign(toePx.x - anklePx.x) : 1;
+    const kneeForward = Math.max(0, (kneePx.x - anklePx.x) * facing);
+    if (kneeForward > 44 || torsoLean > 35) {
+      return { code: 'knee_over_toes', message: '保持躯干笔直中立，前膝避免过度前冲超过脚尖', value: Math.round(Math.max(kneeForward, torsoLean)) };
+    }
+  } else if (exerciseId === 'pushup') {
+    const shoulder = landmarks[isLeft ? 11 : 12];
+    const hip = landmarks[isLeft ? 23 : 24];
+    const ankle = landmarks[isLeft ? 27 : 28];
+    if (!shoulder || !hip || !ankle ||
+        (shoulder.visibility ?? 1) < 0.45 || (hip.visibility ?? 1) < 0.45 || (ankle.visibility ?? 1) < 0.45) return null;
+    const pts = [shoulder, hip, ankle].map(p => toPixelPoint(p));
+    const bodyAngle = angleDegrees(...pts);
+    if (bodyAngle !== null) {
+      const deviation = Math.abs(180 - bodyAngle);
+      if (deviation > 25) {
+        return { code: 'sagging_hips', message: '收紧核心与臀部，保持头肩髋踝呈一直线，避免塌腰', value: Math.round(deviation) };
+      }
+    }
+  }
+  return null;
+}
+
+const MIN_REP_MS = 650;
+const MIN_TRACKING_INTERVAL_MS = 80;
+
+class ExerciseAnalyzer {
+  constructor(exerciseId = 'squat', options = {}) { this.configure(exerciseId, options); }
+  configure(exerciseId, options = {}) {
+    if (!EXERCISES[exerciseId]) throw new Error(`Unknown exercise: ${exerciseId}`);
+    const base = EXERCISES[exerciseId];
+    const difficulty = options.difficulty || 'standard';
+    const targetAngle = options.targetAngle ?? (DIFFICULTY_PRESETS[difficulty]?.[exerciseId] ?? base.full);
+    this.exercise = { ...base, full: targetAngle, difficulty };
+    this.targetReps = options.targetReps || 0;
+    this.count = 0;
+    this.partialCount = 0;
+    this.phase = '等待站稳';
+    this.ready = false;
+    this.inRep = false;
+    this.minAngle = 180;
+    this.peakAngle = 0;
+    this.repStartedAt = 0;
+    this.lastUpdateAt = -1;
+    this.lastAngle = null;
+    this.lastSmooth = null;
+    this.visible = false;
+    this.samples = 0;
+    this.lastEvent = null;
+    this.activeSide = null;
+    this.depthProgress = 0;
+    this.faultCounts = { trunk_lean: 0, arm_swing: 0, arm_asymmetry: 0, knee_over_toes: 0, sagging_hips: 0 };
+    this.jackArmAsymmetry = false;
+    this.lastFaultTimes = {};
+    this.currentFault = null;
+    this.minLegSpread = Infinity;
+    this.peakLegSpread = 0;
+    this.minAnkleDist = Infinity;
+    this.peakAnkleDist = 0;
+    this.legTrackingLost = false;
+    this.hadValidLegRatio = false;
+    this.armPeakLegSynchronized = false;
+    this.armPeakTimestamp = null;
+    this.legPeakTimestamp = null;
+    this.legRatioAtArmPeak = null;
+  }
+  /** Reset any in-progress incomplete rep state when demo modes or tabs are switched (STATE-01). */
+  resetIncompleteRep() {
+    this.inRep = false;
+    this.ready = true;
+    this.phase = '已就绪';
+    this.minAngle = 180;
+    this.peakAngle = 0;
+    this.lastSmooth = null;
+    this.depthProgress = 0;
+    this.currentFault = null;
+    this.lastEvent = null;
+    this.minLegSpread = Infinity;
+    this.peakLegSpread = 0;
+    this.minAnkleDist = Infinity;
+    this.peakAnkleDist = 0;
+    this.legTrackingLost = false;
+    this.hadValidLegRatio = false;
+    this.armPeakLegSynchronized = false;
+    this.armPeakTimestamp = null;
+    this.legPeakTimestamp = null;
+    this.legRatioAtArmPeak = null;
+  }
+  update({ angle, visible = true, timestamp, side = null, landmarks = null }) {
+    if (!Number.isFinite(timestamp)) throw new Error('timestamp must be finite milliseconds');
+    if (timestamp <= this.lastUpdateAt) return this.snapshot();
+    const sinceLast = this.lastUpdateAt < 0 ? 0 : timestamp - this.lastUpdateAt;
+    this.lastUpdateAt = timestamp;
+    if (sinceLast > 1200) {
+      // Background tabs or long inference stalls cannot bridge an unfinished rep.
+      this.ready = false; this.inRep = false; this.lastSmooth = null;
+      this.minLegSpread = Infinity; this.peakLegSpread = 0;
+      this.minAnkleDist = Infinity; this.peakAnkleDist = 0;
+      this.legTrackingLost = false; this.hadValidLegRatio = false;
+      this.armPeakLegSynchronized = false; this.armPeakTimestamp = null; this.legPeakTimestamp = null;
+      this.legRatioAtArmPeak = null;
+    }
+    if (!visible || !Number.isFinite(angle) || angle < 5 || angle > 180) {
+      // A lost pose must not complete a rep; reacquire while extended.
+      this.visible = false; this.ready = false; this.inRep = false; this.lastSmooth = null;
+      this.phase = '请调整机位'; this.lastAngle = null; this.lastEvent = null;
+      this.depthProgress = 0;
+      this.currentFault = null;
+      this.minLegSpread = Infinity;
+      this.peakLegSpread = 0;
+      this.minAnkleDist = Infinity;
+      this.peakAnkleDist = 0;
+      this.legTrackingLost = false;
+      this.hadValidLegRatio = false;
+      this.armPeakLegSynchronized = false;
+      this.armPeakTimestamp = null;
+      this.legPeakTimestamp = null;
+      this.legRatioAtArmPeak = null;
+      return this.snapshot();
+    }
+    this.visible = true;
+
+    // Hard side lock: switching side during active rep interrupts rep to prevent cross-side false counting (R-004)
+    if (this.inRep && this.activeSide && side && side !== this.activeSide && this.exercise.id !== 'jumping_jack') {
+      this.inRep = false;
+      this.ready = false;
+      this.lastSmooth = null;
+      this.minAngle = 180;
+      this.peakAngle = 0;
+      this.phase = '侧别跳变 · 请保持单侧面向镜头';
+      this.depthProgress = 0;
+      this.currentFault = null;
+      this.minLegSpread = Infinity;
+      this.peakLegSpread = 0;
+      this.minAnkleDist = Infinity;
+      this.peakAnkleDist = 0;
+      this.legTrackingLost = false;
+      this.hadValidLegRatio = false;
+      this.armPeakLegSynchronized = false;
+      this.armPeakTimestamp = null;
+      this.legPeakTimestamp = null;
+      this.legRatioAtArmPeak = null;
+      this.lastEvent = { type: 'warning', message: '检测到动作侧别切换，本轮动作已重置', timestamp };
+      return this.snapshot();
+    }
+
+    if (!this.inRep && side) {
+      this.activeSide = side;
+    }
+
+    // Monitor lower body keypoints for jumping jacks (R-005)
+    let currentLegMetrics = null;
+    if (this.exercise.id === 'jumping_jack') {
+      currentLegMetrics = getLegSpreadMetrics(landmarks);
+      if (currentLegMetrics !== null) {
+        this.hadValidLegRatio = true;
+        this.minLegSpread = Math.min(this.minLegSpread, currentLegMetrics.ratio);
+        this.minAnkleDist = Math.min(this.minAnkleDist, currentLegMetrics.ankleDist);
+        if (this.inRep) {
+          if (currentLegMetrics.ratio > this.peakLegSpread) {
+            this.peakLegSpread = currentLegMetrics.ratio;
+            this.legPeakTimestamp = timestamp;
+          }
+          this.peakAnkleDist = Math.max(this.peakAnkleDist, currentLegMetrics.ankleDist);
+        }
+      } else if (this.inRep) {
+        this.legTrackingLost = true;
+      }
+    }
+
+    this.lastSmooth = this.lastSmooth === null || sinceLast > 1000
+      ? angle : this.lastSmooth * 0.55 + angle * 0.45;
+    const measured = this.lastSmooth;
+    this.lastAngle = Math.round(measured);
+    this.samples++;
+    this.lastEvent = null;
+    this.currentFault = null;
+    const { extended, started, full, direction = 'bend' } = this.exercise;
+    const isExpand = direction === 'expand';
+
+    const progressRatio = isExpand
+      ? (measured - extended) / Math.max(1, (full - extended))
+      : (extended - measured) / Math.max(1, (extended - full));
+    this.depthProgress = Math.max(0, Math.min(120, Math.round(progressRatio * 100)));
+
+    const isAtExtended = isExpand ? measured <= extended : measured >= extended;
+    const isStarted = isExpand ? measured >= started : measured <= started;
+
+    if (!this.ready && !this.inRep && isAtExtended) {
+      this.ready = true;
+      this.phase = '已就绪';
+    } else if (this.ready && !this.inRep && isStarted) {
+      this.inRep = true;
+      this.ready = false;
+      this.repStartedAt = timestamp;
+      this.jackArmAsymmetry = false;
+      this.minAngle = measured;
+      this.peakAngle = measured;
+      this.phase = '动作进行中';
+      if (side) this.activeSide = side;
+
+      // Initialize rep spread tracking
+      if (this.exercise.id === 'jumping_jack') {
+        if (currentLegMetrics !== null) {
+          this.peakLegSpread = Math.max(this.peakLegSpread, currentLegMetrics.ratio);
+          this.peakAnkleDist = Math.max(this.peakAnkleDist, currentLegMetrics.ankleDist);
+        } else {
+          this.legTrackingLost = true;
+        }
+      }
+    } else if (this.inRep) {
+      this.minAngle = Math.min(this.minAngle, measured);
+      this.peakAngle = Math.max(this.peakAngle, measured);
+      const isFullReached = isExpand ? this.peakAngle >= full : this.minAngle <= full;
+      this.phase = isFullReached ? '完成幅度 · 返回起点' : '动作进行中';
+
+      // Track temporal arm-leg synchronization for jumping jacks (R-005)
+      if (this.exercise.id === 'jumping_jack') {
+        const overheadThreshold = Math.min(125, this.exercise.full - 5);
+        if (measured >= (this.peakAngle || 0) - 4 && measured >= overheadThreshold) {
+          this.armPeakTimestamp = timestamp;
+          if (currentLegMetrics !== null) {
+            this.legRatioAtArmPeak = currentLegMetrics.ratio;
+            this.ankleDistAtArmPeak = currentLegMetrics.ankleDist;
+            if (currentLegMetrics.ratio >= 1.50 && currentLegMetrics.ankleDist >= 1.30 * this.minAnkleDist) {
+              this.armPeakLegSynchronized = true;
+            }
+          }
+        }
+      }
+
+      // Check posture faults during movement
+      const shouldCheckFault = isExpand ? measured > started : measured < started;
+      if (landmarks && shouldCheckFault) {
+        const fault = checkPostureFault(landmarks, this.exercise.id, this.activeSide || side);
+        if (fault) {
+          if (this.exercise.id === 'jumping_jack' && fault.code === 'arm_asymmetry') {
+            this.jackArmAsymmetry = true;
+          }
+          const lastTime = this.lastFaultTimes[fault.code];
+          if (lastTime === undefined || timestamp - lastTime >= 3000) {
+            this.lastFaultTimes[fault.code] = timestamp;
+            this.faultCounts[fault.code] = (this.faultCounts[fault.code] || 0) + 1;
+            this.currentFault = fault;
+            this.lastEvent = { type: 'warning', message: fault.message, timestamp, code: fault.code };
+          }
+        }
+      }
+
+      if (isAtExtended) {
+        const duration = timestamp - this.repStartedAt;
+        const armComplete = isExpand ? this.peakAngle >= full - 0.5 : this.minAngle <= full + 0.5;
+        let legComplete = true;
+        let legFaultReason = '';
+
+        if (this.exercise.id === 'jumping_jack') {
+          const endMetrics = currentLegMetrics || getLegSpreadMetrics(landmarks);
+          if (!this.hadValidLegRatio || this.legTrackingLost || !endMetrics) {
+            legComplete = false;
+            legFaultReason = '下肢关键点不可见或被遮挡，无法核验开合跳双腿动作';
+          } else if (this.minLegSpread > 1.35) {
+            legComplete = false;
+            legFaultReason = '双腿全程未见并拢，开合跳须从双脚并拢姿势开始';
+          } else if (this.peakLegSpread < 1.65) {
+            legComplete = false;
+            legFaultReason = '双腿展开幅度不足，开合跳需双臂与双腿同步充分展开';
+          } else if (this.peakAnkleDist < 1.35 * this.minAnkleDist || (this.peakAnkleDist - this.minAnkleDist) < 0.035) {
+            legComplete = false;
+            legFaultReason = '双脚踝未见真实展开位移，不能以单纯髋距变化伪造开合跳';
+          } else if (!this.armPeakLegSynchronized || (this.legRatioAtArmPeak !== null && this.legRatioAtArmPeak < 1.45)) {
+            legComplete = false;
+            legFaultReason = '双臂与双腿展开不同步，手臂上举最高峰时双腿未处于展开状态';
+          } else if (endMetrics.ratio > 1.40) {
+            legComplete = false;
+            legFaultReason = '双腿结束未收回并拢，开合跳每轮须返回双脚并拢起点';
+          }
+        }
+
+        let cycleFault = null;
+        if (this.exercise.id === 'jumping_jack' && landmarks) {
+          cycleFault = checkPostureFault(landmarks, this.exercise.id, this.activeSide || side, {
+            completedCycle: true,
+            peakLegSpread: this.peakLegSpread,
+            minAnkleDist: this.minAnkleDist,
+            peakAnkleDist: this.peakAnkleDist,
+            armPeakLegSynchronized: this.armPeakLegSynchronized,
+            hadArmAsymmetry: this.jackArmAsymmetry,
+          });
+        }
+        const complete = armComplete && legComplete && !cycleFault;
+        if (duration >= MIN_REP_MS && duration >= MIN_TRACKING_INTERVAL_MS) {
+          if (complete) {
+            this.count++;
+            const isGoalAchieved = this.targetReps > 0 && this.count >= this.targetReps;
+            const message = isGoalAchieved ? `🎉 达成目标！已完成 ${this.count} 次${this.exercise.name}！` : `完成第 ${this.count} 次${this.exercise.name}`;
+            this.lastEvent = { type: 'success', message, isGoalAchieved, timestamp };
+          } else {
+            this.partialCount++;
+            const message = cycleFault?.message || legFaultReason || (armComplete ? '动作幅度未达标（不计数）' : '本次动作幅度未达到演示阈值（不计数）');
+            this.lastEvent = { type: 'warning', message, timestamp, ...(cycleFault ? { code: cycleFault.code } : {}) };
+          }
+        }
+        this.inRep = false;
+        this.ready = true;
+        this.phase = '已就绪';
+        this.minAngle = 180;
+        this.peakAngle = 0;
+        const currentMetrics = getLegSpreadMetrics(landmarks);
+        this.minLegSpread = currentMetrics?.ratio ?? Infinity;
+        this.peakLegSpread = currentMetrics?.ratio ?? 0;
+        this.minAnkleDist = currentMetrics?.ankleDist ?? Infinity;
+        this.peakAnkleDist = currentMetrics?.ankleDist ?? 0;
+        this.legTrackingLost = false;
+        this.hadValidLegRatio = (currentMetrics !== null);
+        this.armPeakLegSynchronized = false;
+        this.armPeakTimestamp = null;
+        this.legPeakTimestamp = null;
+        this.legRatioAtArmPeak = null;
+        this.legSpreadAtArmPeak = 0;
+        this.ankleDistAtArmPeak = 0;
+      }
+    }
+    return this.snapshot();
+  }
+  snapshot() {
+    return { count: this.count, partialCount: this.partialCount, phase: this.phase,
+      angle: this.lastAngle, visible: this.visible, event: this.lastEvent, samples: this.samples,
+      side: this.activeSide, progress: this.depthProgress,
+      minAngle: this.inRep ? Math.round(this.minAngle) : null,
+      peakAngle: this.inRep ? Math.round(this.peakAngle) : null,
+      fault: this.currentFault, faultCounts: { ...this.faultCounts },
+      difficulty: this.exercise.difficulty, fullAngle: this.exercise.full, targetReps: this.targetReps };
+  }
+}
+
+return { checkPostureFault, extractJointAngle, EXERCISE_GUIDES, toPixelPoint };
+})();
+
+const { drawPose } = (() => {
+// Embedded src/draw.js (generated; edit src/draw.js, not this block)
+/** Transparent pose overlay; synthetic landmarks remain untouched by rendering. */
+const EDGES = [
+  [11,12],[11,13],[13,15],[12,14],[14,16],
+  [11,23],[12,24],[23,24],[23,25],[25,27],[27,29],[24,26],[26,28],[28,30],
+];
+const TAU = Math.PI * 2;
+const MAX_PIXEL_SCALE = 3;
+const MAX_CANVAS_PIXELS = 2500000;
+const BREATH_SPEED = 0.0022;
+const BREATH_LIFT = 0.0054;
+const HEAD_DRIFT = 0.0025;
+const CURL_SWING_THRESHOLD = 0.11;
+const GROUND_RADIUS = 173;
+const GROUND_PULSE_RADIUS = 12;
+const GROUND_THICKNESS = 12;
+const GROUND_PULSE_THICKNESS = 3;
+const GROUND_ALPHA = 0.12;
+const GROUND_PULSE_ALPHA = 0.11;
+const BASE_COLOR = 'rgba(148, 224, 205, 0.57)';
+const CORE_COLOR = 'rgba(216, 255, 224, 0.84)';
+const ACCENT_COLOR = '#fef08a';
+let layoutCanvas = null;
+let layoutWidth = 0;
+let layoutObserver = null;
+let resizeListenerSet = false;
+
+function canvasDisplayWidth(canvas, width) {
+  if (layoutCanvas !== canvas) {
+    layoutObserver?.disconnect();
+    layoutCanvas = canvas;
+    layoutWidth = canvas.clientWidth || width;
+    if (typeof ResizeObserver !== 'undefined') {
+      layoutObserver = new ResizeObserver(entries => {
+        if (layoutCanvas === canvas) layoutWidth = entries[0]?.contentRect?.width || width;
+      });
+      layoutObserver.observe(canvas);
+    } else if (typeof window !== 'undefined' && !resizeListenerSet) {
+      window.addEventListener('resize', () => { layoutWidth = 0; }, { passive: true });
+      resizeListenerSet = true;
+    }
+  }
+  if (!layoutWidth) layoutWidth = canvas.clientWidth || width;
+  return layoutWidth;
+}
+
+function prepareCanvas(canvas, width, height) {
+  const dpr = typeof window === 'undefined' ? 1 : (window.devicePixelRatio || 1);
+  const displayScale = Math.max(1, canvasDisplayWidth(canvas, width) / width);
+  const pixelLimit = Math.sqrt(MAX_CANVAS_PIXELS / (width * height));
+  const scale = Math.min(MAX_PIXEL_SCALE, Math.max(1, dpr * displayScale), pixelLimit);
+  const pixelWidth = Math.max(1, Math.floor(width * scale));
+  const pixelHeight = Math.max(1, Math.floor(height * scale));
+  if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
+  if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.setTransform(pixelWidth / width, 0, 0, pixelHeight / height, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  return ctx;
+}
+
+function segment(ctx, x1, y1, x2, y2, color, lineWidth) {
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lineWidth;
+  ctx.stroke();
+}
+
+
+// Demo-only projection. It never changes the landmarks sent to the analyzer.
+// The side-view samples overlap by design; separating their far limbs makes
+// the synthetic figure readable while retaining the tracked joint geometry.
+function displayPose(landmarks, exercise) {
+  const pose = landmarks.map(p => p ? { ...p } : p);
+  const has = i => pose[i] && (pose[i].visibility ?? 1) >= 0.35;
+  const move = (i, x, y) => {
+    if (has(i) && Number.isFinite(x) && Number.isFinite(y)) {
+      pose[i].x = x;
+      pose[i].y = y;
+    }
+  };
+  if (exercise === 'curl') {
+    // All far-side landmarks are moved by one rigid 2D translation only.
+    // The near-side measured shoulder/elbow/wrist are NEVER altered.
+    for (const i of [12, 14, 16, 24, 26, 28, 30]) {
+      if (has(i)) move(i, pose[i].x - 0.055, pose[i].y);
+    }
+  } else if (exercise === 'squat' || exercise === 'lunge') {
+    // Spread the far-side silhouette without changing either side's lengths.
+    // Old independent offsets altered the shin and upper-arm pixel lengths.
+    for (const i of [12, 14, 16, 24, 26, 28, 30, 32]) {
+      if (has(i)) move(i, pose[i].x + 0.028, pose[i].y);
+    }
+  } else if (exercise === 'pushup') {
+    for (const i of [12, 14, 16, 24, 26, 28, 30, 32]) {
+      if (has(i)) move(i, pose[i].x - 0.035, pose[i].y);
+    }
+  }
+  return pose;
+}
+
+function drawDemoSkeleton(ctx, landmarks, exercise, options) {
+  const { width, height, highlightJoints, angle, depthProgress, time, label, backingScale } = options;
+  const pts = displayPose(landmarks, exercise);
+  const visible = p => p && (p.visibility ?? 1) >= 0.35 && Number.isFinite(p.x) && Number.isFinite(p.y);
+  const xy = i => [pts[i].x * width, pts[i].y * height];
+  const active = new Set(highlightJoints || []);
+  const pulse = 0.5 + 0.5 * Math.sin(time * 0.004);
+  const scale = width / 960;
+  const has = i => visible(pts[i]);
+  const injectedCurlSwing = exercise === 'curl' && visible(landmarks[11]) && visible(landmarks[13]) &&
+    Math.abs(landmarks[13].x - landmarks[11].x) > CURL_SWING_THRESHOLD;
+  const glowScale = Math.max(1, Math.min(MAX_PIXEL_SCALE, backingScale));
+
+  // The floor gives the skeleton a grounded, full-body visual reference.
+  // A jumping-jack athlete lifts off the floor. The floor/shadow must stay
+  // fixed as the body moves; following the ankles made the demo look as if
+  // the platform jumped with the figure.
+  const footY = exercise === 'jumping_jack'
+    ? height * (512 / 540)
+    : (exercise === 'pushup'
+      ? height * (475 / 540)
+      : Math.max(...[27,28].filter(has).map(i => pts[i].y * height), height * 0.87) + 13);
+  ctx.save();
+  const groundPulse = 0.5 + 0.5 * Math.sin(time * BREATH_SPEED);
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = `rgba(106, 213, 201, ${GROUND_ALPHA + groundPulse * GROUND_PULSE_ALPHA})`;
+  ctx.beginPath(); ctx.ellipse(width * .5, footY, GROUND_RADIUS + GROUND_PULSE_RADIUS * groundPulse, GROUND_THICKNESS + GROUND_PULSE_THICKNESS * groundPulse, 0, 0, TAU); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(width * .19, footY); ctx.lineTo(width * .81, footY);
+  ctx.strokeStyle = 'rgba(106, 213, 201, 0.10)'; ctx.stroke();
+  ctx.restore();
+
+  // An understated torso form reads as a body rather than two parallel lines.
+  if ([11,12,23,24].every(has)) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(...xy(11)); ctx.lineTo(...xy(12));
+    ctx.lineTo(...xy(24)); ctx.lineTo(...xy(23)); ctx.closePath();
+    const torsoGradient = ctx.createLinearGradient(...xy(12), ...xy(11));
+    torsoGradient.addColorStop(0, 'rgba(69, 157, 161, 0.07)');
+    torsoGradient.addColorStop(1, 'rgba(94, 219, 194, 0.22)');
+    ctx.fillStyle = torsoGradient; ctx.fill();
+    ctx.lineWidth = 1.2 * scale;
+    ctx.strokeStyle = 'rgba(122, 242, 221, 0.25)'; ctx.stroke();
+    ctx.restore();
+  }
+
+  const drawBone = (a, b) => {
+    if (!has(a) || !has(b)) return;
+    const [x1,y1] = xy(a), [x2,y2] = xy(b);
+    const hot = active.has(a) && active.has(b);
+    const far = [12,14,16,24,26,28,30,32].includes(a) && [12,14,16,24,26,28,30,32].includes(b);
+    ctx.save();
+    if (hot) {
+      ctx.shadowColor = 'rgba(255, 198, 96, 0.37)';
+      ctx.shadowBlur = (5 + 3 * pulse) * scale * glowScale;
+      segment(ctx,x1,y1,x2,y2,'rgba(242, 174, 82, 0.22)', 10*scale);
+      ctx.shadowBlur = 0;
+      segment(ctx,x1,y1,x2,y2,'#f6c476',5*scale);
+      segment(ctx,x1,y1,x2,y2,'#fff2c4',2*scale);
+    } else {
+      segment(ctx,x1,y1,x2,y2,far ? 'rgba(60, 155, 166, 0.16)' : 'rgba(67, 191, 178, 0.20)',(far ? 7 : 9)*scale);
+      segment(ctx,x1,y1,x2,y2,far ? 'rgba(121, 198, 193, 0.53)' : 'rgba(175, 241, 220, 0.78)',(far ? 2.2 : 3.1)*scale);
+    }
+    ctx.restore();
+  };
+
+  // Draw distant anatomy first. Near-side limbs and their key joints remain legible.
+  const farEdges = [[12,14],[14,16],[12,24],[24,26],[26,28],[28,30]];
+  const nearEdges = [[11,12],[23,24],[11,23],[11,13],[13,15],[23,25],[25,27],[27,29]];
+  for (const [a,b] of farEdges) drawBone(a,b);
+  for (const [a,b] of nearEdges) drawBone(a,b);
+  if (has(31)) drawBone(27,31);
+  if (has(32)) drawBone(28,32);
+
+  const head = pts[0];
+  if (visible(head) && has(11) && has(12)) {
+    const mx = (pts[11].x + pts[12].x) * width / 2;
+    const my = (pts[11].y + pts[12].y) * height / 2;
+    const hx = head.x * width, hy = head.y * height;
+    segment(ctx,mx,my,hx,hy,'rgba(165, 226, 208, 0.62)',2.8*scale);
+    ctx.save(); ctx.beginPath(); ctx.ellipse(hx,hy,15*scale,19*scale,0,0,TAU);
+    ctx.fillStyle = 'rgba(91, 184, 172, 0.14)'; ctx.fill();
+    ctx.strokeStyle = 'rgba(190, 249, 222, 0.85)'; ctx.lineWidth = 2.4*scale; ctx.stroke();
+    ctx.restore();
+  }
+
+  for (const i of [11,12,13,14,15,16,23,24,25,26,27,28,29,30,31,32]) {
+    if (!has(i)) continue;
+    const [x,y] = xy(i);
+    const hot = active.has(i);
+    ctx.beginPath(); ctx.arc(x,y,(hot ? 5.1 : 3.4)*scale,0,TAU);
+    ctx.fillStyle = hot ? '#ffe2a1' : '#c9f7e1'; ctx.fill();
+    if (hot) {
+      ctx.beginPath(); ctx.arc(x,y,(8.5 + 1.3*pulse)*scale,0,TAU);
+      ctx.strokeStyle = 'rgba(255, 218, 155, 0.36)'; ctx.lineWidth = 1.2*scale; ctx.stroke();
+    }
+  }
+
+  const apexId = highlightJoints?.length === 3 ? highlightJoints[1] :
+    active.has(25) ? 25 : active.has(26) ? 26 : active.has(13) ? 13 : active.has(14) ? 14 : null;
+  if (apexId !== null && has(apexId) && angle !== null && Number.isFinite(angle)) {
+    const chain = highlightJoints?.length === 3 ? highlightJoints : null;
+    const progressCol = depthProgress >= 100 ? '#8cf1bf' : '#f8d28d';
+    if (chain?.every(has)) {
+      const [ax,ay] = xy(chain[0]), [bx,by] = xy(chain[1]), [cx,cy] = xy(chain[2]);
+      const a0 = Math.atan2(ay-by, ax-bx), a1 = Math.atan2(cy-by,cx-bx);
+      const delta = Math.atan2(Math.sin(a1-a0),Math.cos(a1-a0));
+      ctx.save();
+      ctx.beginPath();ctx.arc(bx,by,24*scale,a0,a0+delta,delta < 0);
+      ctx.strokeStyle = 'rgba(248, 210, 141, 0.75)';ctx.lineWidth = 1.8*scale;ctx.stroke();
+      ctx.restore();
+    }
+    const [ax, ay] = xy(apexId);
+    const tagX = Math.min(width - 79, Math.max(20, ax + 32 * scale));
+    const tagY = Math.min(height - 40, Math.max(36, ay - 18 * scale));
+    ctx.save(); ctx.fillStyle = 'rgba(10, 30, 39, 0.94)';
+    ctx.strokeStyle = 'rgba(135, 217, 189, 0.5)'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(tagX,tagY,65,28,7);
+    else ctx.rect(tagX,tagY,65,28);
+    ctx.fill();ctx.stroke();
+    ctx.font = '700 16px system-ui, sans-serif';ctx.fillStyle = progressCol;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(`${Math.round(angle)}°`,tagX+32.5,tagY+14);
+    ctx.restore();
+  }
+
+  // Mandatory synthetic disclaimer is legible, away from the stage title.
+  ctx.save();
+  ctx.font = '700 12px system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(173, 218, 211, 0.92)';
+  ctx.textBaseline = 'top';
+  if (label) ctx.fillText(label,26,70);
+  if (injectedCurlSwing) {
+    ctx.font = '700 13px system-ui, sans-serif';
+    ctx.fillStyle = '#ffd38b';
+    ctx.fillText('故意模拟错误动作 · 大臂借力', 26, 94);
+  }
+  ctx.restore();
+}
+
+function drawPose(canvas, landmarks, options = {}) {
+  if (!canvas) return;
+  const { width = 960, height = 540, active = true, label = '', highlightJoints = null, angle = null, depthProgress = 0, time = 0, demoExercise = null } = options;
+  const ctx = prepareCanvas(canvas, width, height);
+  if (!ctx || !landmarks?.length) return;
+  if (demoExercise) {
+    drawDemoSkeleton(ctx, landmarks, demoExercise, { width, height, highlightJoints, angle, depthProgress, time, label, backingScale: canvas.width / width });
+    return;
+  }
+  const highlightSet = new Set(highlightJoints || []);
+  const unit = Math.max(0.8, width / 960);
+  const pulse = 0.5 + 0.5 * Math.sin(time * 0.0045);
+  const visible = p => p && (p.visibility ?? 1) >= 0.35 && Number.isFinite(p.x) && Number.isFinite(p.y);
+
+  // Head / neck use the same lighting as the body, with a softer silhouette.
+  const head = landmarks[0], p11 = landmarks[11], p12 = landmarks[12];
+  if (visible(p11) && visible(p12)) {
+    const nx = (p11.x + p12.x) * width / 2;
+    const ny = (p11.y + p12.y) * height / 2;
+    const hx = visible(head) && (head.x !== 0 || head.y !== 0) ? head.x * width : nx;
+    const hy = visible(head) && (head.x !== 0 || head.y !== 0) ? head.y * height : ny - Math.max(30, height / 16);
+    segment(ctx, nx, ny, hx, hy, active ? BASE_COLOR : 'rgba(148,163,184,.3)', 3 * unit);
+    ctx.beginPath();
+    ctx.arc(hx, hy, Math.max(16, width / 55), 0, TAU);
+    ctx.fillStyle = active ? 'rgba(94, 222, 180, 0.07)' : 'rgba(148,163,184,.06)';
+    ctx.fill();
+    ctx.strokeStyle = active ? CORE_COLOR : 'rgba(148,163,184,.4)';
+    ctx.lineWidth = 2.6 * unit;
+    ctx.stroke();
+  }
+
+  for (const [a, b] of EDGES) {
+    const p = landmarks[a], q = landmarks[b];
+    if (!visible(p) || !visible(q)) continue;
+    const x1 = p.x * width, y1 = p.y * height, x2 = q.x * width, y2 = q.y * height;
+    const target = active && highlightSet.has(a) && highlightSet.has(b);
+    if (target) {
+      ctx.save();
+      ctx.shadowColor = 'rgba(250, 221, 99, 0.65)';
+      ctx.shadowBlur = (12 + 7 * pulse) * unit;
+      segment(ctx, x1, y1, x2, y2, 'rgba(250, 211, 99, 0.38)', 11 * unit);
+      ctx.restore();
+      segment(ctx, x1, y1, x2, y2, 'rgba(255, 222, 128, 0.75)', 6 * unit);
+      segment(ctx, x1, y1, x2, y2, ACCENT_COLOR, 2.8 * unit);
+    } else {
+      const core = a === 11 && b === 12 || a === 11 && b === 23 || a === 12 && b === 24 || a === 23 && b === 24;
+      segment(ctx, x1, y1, x2, y2, active ? 'rgba(72, 169, 155, 0.13)' : 'rgba(148,163,184,.09)', (core ? 9 : 7) * unit);
+      segment(ctx, x1, y1, x2, y2, active ? (core ? CORE_COLOR : BASE_COLOR) : 'rgba(148,163,184,.42)', (core ? 3.5 : 2.8) * unit);
+    }
+  }
+
+  for (let i = 11; i <= 30; i++) {
+    const p = landmarks[i];
+    if (!visible(p)) continue;
+    const target = active && highlightSet.has(i);
+    const x = p.x * width, y = p.y * height;
+    const radius = (target ? 6.8 : 4.5) * unit;
+    if (target) {
+      ctx.save();
+      ctx.shadowBlur = (11 + 8 * pulse) * unit;
+      ctx.shadowColor = 'rgba(254,240,138,.9)';
+      ctx.beginPath(); ctx.arc(x, y, radius + 1, 0, TAU);
+      ctx.fillStyle = 'rgba(255,223,130,.55)'; ctx.fill();
+      ctx.restore();
+      ctx.beginPath(); ctx.arc(x, y, radius + 5 * unit + 2.5 * unit * pulse, 0, TAU);
+      ctx.strokeStyle = `rgba(254, 240, 138, ${0.20 + 0.18 * (1 - pulse)})`;
+      ctx.lineWidth = 1.6 * unit; ctx.stroke();
+    }
+    ctx.beginPath(); ctx.arc(x, y, radius, 0, TAU);
+    ctx.fillStyle = target ? '#fff9d6' : (active ? '#d9fff0' : '#94a3b8');
+    ctx.fill();
+    ctx.strokeStyle = target ? '#ad842c' : 'rgba(52, 120, 105, .85)';
+    ctx.lineWidth = 1.6 * unit; ctx.stroke();
+  }
+
+  if (angle !== null && Number.isFinite(angle) && highlightJoints?.length) {
+    const apexId = highlightJoints.length === 3 ? highlightJoints[1]
+      : (highlightJoints.includes(25) ? 25 : (highlightJoints.includes(26) ? 26 : (highlightJoints.includes(13) ? 13 : (highlightJoints.includes(14) ? 14 : highlightJoints[0]))));
+    const apex = landmarks[apexId];
+    if (visible(apex)) {
+      const bx = Math.min(width - 68, Math.max(10, apex.x * width + 17 * unit));
+      const by = Math.min(height - 36, Math.max(25, apex.y * height - 13 * unit));
+      const strokeCol = depthProgress >= 100 ? '#6ee7b7' : (depthProgress > 25 ? '#fbbf24' : '#fcd34d');
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,.22)'; ctx.shadowBlur = 12 * unit;
+      ctx.fillStyle = 'rgba(9, 27, 39, 0.9)';
+      ctx.strokeStyle = strokeCol; ctx.lineWidth = 1.1 * unit;
+      ctx.beginPath();
+      ctx.roundRect ? ctx.roundRect(bx, by, 57, 26, 8) : ctx.rect(bx, by, 57, 26);
+      ctx.fill(); ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.font = '700 13px sans-serif';
+      ctx.fillStyle = depthProgress >= 100 ? '#a7f3d0' : '#fff9e9';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(`${angle}°`, bx + 28.5, by + 13);
+      ctx.restore();
+    }
+  }
+
+  if (label) {
+    ctx.save();
+    ctx.font = `700 ${Math.max(13, width / 65)}px sans-serif`;
+    ctx.fillStyle = '#fef3c7';
+    ctx.shadowColor = 'rgba(0,0,0,.7)'; ctx.shadowBlur = 8 * unit;
+    ctx.fillText(label, 26, 40);
+    ctx.restore();
+  }
+}
+
+function drawIdle(canvas) {
+  if (!canvas) return;
+  const width = 960, height = 540;
+  const ctx = prepareCanvas(canvas, width, height);
+  if (!ctx) return;
+  const g = ctx.createRadialGradient(480, 230, 36, 480, 260, 480);
+  g.addColorStop(0, '#244c54'); g.addColorStop(1, '#0b1b2b');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, width, height);
+  ctx.strokeStyle = 'rgba(160,240,211,.055)'; ctx.lineWidth = 1;
+  for (let x = 0; x < width; x += 48) segment(ctx, x, 0, x, height, 'rgba(160,240,211,.055)', 1);
+  for (let y = 0; y < height; y += 48) segment(ctx, 0, y, width, y, 'rgba(160,240,211,.055)', 1);
+  ctx.beginPath(); ctx.arc(480, 270, 180, 0, TAU);
+  ctx.strokeStyle = 'rgba(174,255,210,.11)'; ctx.lineWidth = 1.5; ctx.stroke();
+  const points = [[480,205,480,150],[480,205,450,285],[480,205,515,285],[480,205,480,355],[480,355,445,445],[480,355,520,445]];
+  ctx.save(); ctx.shadowBlur = 12; ctx.shadowColor = 'rgba(129, 230, 178, .25)';
+  for (const [x1,y1,x2,y2] of points) segment(ctx, x1, y1, x2, y2, '#87bda9', 4);
+  ctx.beginPath(); ctx.arc(480,120,26,0,TAU); ctx.strokeStyle = '#87bda9'; ctx.lineWidth = 4; ctx.stroke();
+  ctx.restore();
+  ctx.textAlign = 'center'; ctx.fillStyle = '#d1e5df'; ctx.font = '20px sans-serif';
+  ctx.fillText('等待开启摄像头或模拟演示', 480, 500);
+  ctx.textAlign = 'left';
+}
+
+return { drawPose };
+})();
+// END GENERATED SOURCES
+
+const $ = id => document.getElementById(id);
+
+let clockMs = 0, playing = true, last = performance.now();
+
+function getBoneDist(pose, idxA, idxB) {
+  const pA = toPixelPoint(pose[idxA]);
+  const pB = toPixelPoint(pose[idxB]);
+  return Math.hypot(pA.x - pB.x, pA.y - pB.y);
+}
+
+function updateVariants() {
+  const ex = $('exerciseSelect').value;
+  const guide = EXERCISE_GUIDES[ex];
+  const faults = guide?.faults || [];
+  $('variant').innerHTML = faults.map((f, i) => `<option value="${i}">错误 0${i+1} · ${f.shortName || f.name}</option>`).join('');
+  $('pageTitle').textContent = `${guide?.standard?.title || ex} — 运动学精修对照`;
+}
+
+function render() {
+  const ex = $('exerciseSelect').value;
+  const ix = Number($('variant').value) || 0;
+  const diff = $('difficulty').value;
+  const guide = EXERCISE_GUIDES[ex];
+  const faultInfo = guide?.faults?.[ix] || {};
+
+  const normal = simulatePose(clockMs, ex, { mode: 'standard', difficulty: diff });
+  const faulty = simulatePose(clockMs, ex, { mode: 'fault', faultIndex: ix, difficulty: diff });
+
+  const normJoint = extractJointAngle(normal, ex);
+  const faultJoint = extractJointAngle(faulty, ex);
+  const normAng = normJoint?.angle ?? simulatedAngle(clockMs, ex, { mode: 'standard', difficulty: diff });
+  const faultAng = faultJoint?.angle ?? simulatedAngle(clockMs, ex, { mode: 'fault', faultIndex: ix, difficulty: diff });
+
+  drawPose($('good'), normal, { demoExercise: ex, width: 960, height: 540, angle: normAng, time: clockMs, label: 'SYNTHETIC · STANDARD' });
+  drawPose($('fault'), faulty, { demoExercise: ex, width: 960, height: 540, angle: faultAng, time: clockMs, label: 'SYNTHETIC · FAULT' });
+
+  $('goodAngle').textContent = `${normAng.toFixed(1)}°`;
+  $('badAngle').textContent = `${faultAng.toFixed(1)}°`;
+  $('goodSide').textContent = normJoint?.side || '左侧';
+  $('badSide').textContent = faultJoint?.side || '左侧';
+
+  // Depth progress ratio
+  const ext = (ex === 'jumping_jack') ? 35 : (ex === 'pushup' ? 160 : 160);
+  const full = (ex === 'jumping_jack') ? 168 : (ex === 'curl' ? 48 : (ex === 'pushup' ? 90 : 105));
+  const calcProg = (ang) => (ex === 'jumping_jack') ? Math.max(0, Math.min(100, Math.round(100 * (ang - ext) / (full - ext)))) : Math.max(0, Math.min(100, Math.round(100 * (ext - ang) / (ext - full))));
+  $('goodProgress').textContent = `${calcProg(normAng)}%`;
+  $('badProgress').textContent = `${calcProg(faultAng)}%`;
+
+  // Fault alert
+  const alarm = checkPostureFault(faulty, ex, faultJoint?.side || '左侧');
+  if (alarm) {
+    $('badAlertTag').textContent = `AI 告警: ${alarm.code}`;
+    $('badAlertTag').className = 'alert-tag tag-warn';
+    $('badAlertText').textContent = alarm.message;
+  } else {
+    $('badAlertTag').textContent = '未触发告警';
+    $('badAlertTag').className = 'alert-tag tag-ok';
+    $('badAlertText').textContent = '动作尚未进入峰值代偿区间';
+  }
+
+  $('faultHead').textContent = `! 错误示范：${faultInfo.shortName || faultInfo.name || '常见代偿'}`;
+  $('faultNameText').textContent = faultInfo.name || '—';
+  $('faultWhereText').textContent = faultInfo.where || '—';
+  $('faultWhyText').textContent = faultInfo.why || '—';
+  $('faultCorrText').textContent = faultInfo.correction || '—';
+  $('faultAiRuleText').textContent = faultInfo.aiRule || '—';
+
+  // Rigidity table
+  let bones = [];
+  if (ex === 'lunge') {
+    bones = [
+      ['左大腿 (23-25)', 23, 25, 113.4],
+      ['左小腿 (25-27)', 25, 27, 118.8],
+      ['右大腿 (24-26)', 24, 26, 113.4],
+      ['右小腿 (26-28)', 26, 28, 118.8],
+      ['左躯干 (11-23)', 11, 23, 124.2],
+      ['右躯干 (12-24)', 12, 24, 124.2],
+      ['左大臂 (11-13)', 11, 13, 76.0],
+      ['左前臂 (13-15)', 13, 15, 76.0],
+      ['右大臂 (12-14)', 12, 14, 76.0],
+      ['右前臂 (14-16)', 14, 16, 76.0]
+    ];
+  } else if (ex === 'pushup') {
+    bones = [
+      ['左大臂 (11-13)', 11, 13, 92.0],
+      ['左前臂 (13-15)', 13, 15, 88.0],
+      ['右大臂 (12-14)', 12, 14, 92.0],
+      ['右前臂 (14-16)', 14, 16, 88.0],
+      ['左躯干 (11-23)', 11, 23, 145.0],
+      ['右躯干 (12-24)', 12, 24, 145.0],
+      ['左大腿 (23-25)', 23, 25, 115.0],
+      ['左小腿 (25-27)', 25, 27, 110.0],
+      ['右大腿 (24-26)', 24, 26, 115.0],
+      ['右小腿 (26-28)', 26, 28, 110.0]
+    ];
+  } else if (ex === 'squat') {
+    bones = [
+      ['左大腿 (23-25)', 23, 25, 113.4],
+      ['左小腿 (25-27)', 25, 27, 118.8],
+      ['左躯干 (11-23)', 11, 23, 124.2]
+    ];
+  } else if (ex === 'curl') {
+    bones = [
+      ['左大臂 (11-13)', 11, 13, 150.0],
+      ['左前臂 (13-15)', 13, 15, 128.0],
+      ['躯干 (11-23)', 11, 23, 145.8]
+    ];
+  } else {
+    // jumping jack
+    bones = [
+      ['左大臂 (11-13)', 11, 13, 76.0],
+      ['左前臂 (13-15)', 13, 15, 76.0],
+      ['左大腿 (23-25)', 23, 25, 101.0],
+      ['左小腿 (25-27)', 25, 27, 110.0]
+    ];
+  }
+
+  $('rigidityBody').innerHTML = bones.map(([name, i, j, baseline]) => {
+    const dGood = getBoneDist(normal, i, j);
+    const dBad = getBoneDist(faulty, i, j);
+    const diffGood = Math.abs(dGood - baseline);
+    const diffBad = Math.abs(dBad - baseline);
+    const ok = diffGood <= 1e-6 && diffBad <= 1e-6;
+    return `<tr>
+      <td>${name}</td>
+      <td>${baseline.toFixed(1)} px</td>
+      <td class="${diffGood <= 1e-6 ? 'good-len' : 'bad-len'}">${dGood.toFixed(2)} px</td>
+      <td class="${diffBad <= 1e-6 ? 'good-len' : 'bad-len'}">${dBad.toFixed(2)} px</td>
+      <td>${ok ? '✔ 刚体恒定' : '✖ 长度形变'}</td>
+    </tr>`;
+  }).join('');
+
+  $('scrub').value = clockMs;
+  $('clock').textContent = `${(clockMs / 1000).toFixed(2)} / 4.70s`;
+}
+
+function tick(now) {
+  if (playing) clockMs = (clockMs + Math.min(50, now - last)) % 4700;
+  last = now;
+  render();
+  requestAnimationFrame(tick);
+}
+
+$('exerciseSelect').onchange = () => { updateVariants(); clockMs = 0; render(); };
+$('variant').onchange = () => { clockMs = 0; render(); };
+$('difficulty').onchange = () => { clockMs = 0; render(); };
+$('play').onclick = () => { playing = !playing; $('play').textContent = playing ? '⏸ 暂停' : '▶ 播放'; };
+$('reset').onclick = () => { clockMs = 0; render(); };
+$('scrub').oninput = () => { clockMs = Number($('scrub').value); playing = false; $('play').textContent = '▶ 播放'; render(); };
 
 updateVariants();
 requestAnimationFrame(tick);

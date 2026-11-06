@@ -1,5 +1,6 @@
 node_modules/
 release/
+pose-refine-kit/
 .env
 .env.*
 *.log

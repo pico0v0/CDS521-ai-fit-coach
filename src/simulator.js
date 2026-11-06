@@ -6,9 +6,10 @@ export function simulatedAngle(elapsedMs, exerciseId, options = {}) {
   const period = 4700;
   const cycle = Math.floor(elapsedMs / period);
   const t = (elapsedMs % period) / period;
-  // Asymmetric ease improves perceived momentum without moving any phase boundary
-  // or changing standing/peak angles consumed by the counting state machine.
-  const easing = (u, skew) => u * u * (3 - 2 * u) + skew * 4 * u * u * (1 - u) * (1 - u);
+  // Quintic ease keeps velocity AND acceleration zero at phase boundaries.
+  // The small time warp preserves asymmetric eccentric/concentric momentum,
+  // while smooth5 still makes each join C2-continuous.
+  const easing = (u, skew) => smooth5(u + skew * 4 * u * u * (1 - u) * (1 - u));
 
   const diff = options.difficulty || 'standard';
   let full;
@@ -202,129 +203,154 @@ function simulateJumpingJack(elapsedMs, options, activeFaultIndex, t, angleDeg) 
   return p;
 }
 
-function simulateLunge(elapsedMs, options, activeFaultIndex, t, angleDeg, lungeKneeOverToes) {
-  const points = blank();
+// Side-view split squat / stationary lunge. Neither foot ever slides during a
+// repetition. We solve the FRONT knee by exact 2-link IK from the planted ankle
+// and the prescribed knee angle; the rear knee is then solved against its own
+// planted ankle, so all four long-bone lengths remain independently rigid.
+// Standard and fault #0 use different *initial stances*: a shorter step is a
+// natural contributor to front-knee travel, not a foot teleport mid-rep.
+function simulateLunge(elapsedMs, options, activeFaultIndex, t, angleDeg, kneeDrive) {
+  const p = blank();
   const W = 960, H = 540;
-  const L_SHIN = 118.8, L_THIGH = 113.4, L_TORSO = 124.2, L_UPPER = 76.0, L_FOREARM = 76.0;
-  const angle = angleDeg * Math.PI / 180;
-  const squatRatio = Math.max(0, Math.min(1, (174 - angleDeg) / (174 - 92)));
+  const THIGH = 113.4, SHIN = 118.8, TORSO = 124.2;
+  const UPPER = 76.0, FOREARM = 76.0;
+  const RAD = Math.PI / 180;
+  const depth = Math.max(0, Math.min(1, (174 - angleDeg) / (174 - 90)));
+  const faultyStance = activeFaultIndex === 0;
 
-  const frontAnkleX = W * 0.49, frontAnkleY = H * 0.86;
-  const normalShinTilt = 2 + 4 * squatRatio;
-  const shinTiltDeg = normalShinTilt + 24 * lungeKneeOverToes;
-  const shinTilt = shinTiltDeg * Math.PI / 180;
+  const frontAnkle = { x: 626, y: 450 }; // stance faces image-right
+  const rearAnkle = { x: faultyStance ? 455 : 355, y: 450 };
+  // The knee angle uniquely fixes the hip-to-ankle reach by the cosine law.
+  // Hip azimuth controls weight transfer independently without compromising it.
+  const reach = Math.sqrt(THIGH * THIGH + SHIN * SHIN -
+    2 * THIGH * SHIN * Math.cos(angleDeg * RAD));
+  const healthyAzimuth = 38 + 7 * depth;
+  const azimuth = (healthyAzimuth + (13 - healthyAzimuth) * kneeDrive) * RAD;
+  const hip = {
+    x: frontAnkle.x - reach * Math.sin(azimuth),
+    y: frontAnkle.y - reach * Math.cos(azimuth),
+  };
+  const frontKnee = rigidTwoLink(hip, frontAnkle, THIGH, SHIN, -1);
+  // In a healthy long split stance the trailing knee drops towards the floor.
+  // In the short-step fault it remains high as weight lurches over the lead toe.
+  const rearKnee = rigidTwoLink(hip, rearAnkle, THIGH, SHIN, faultyStance ? +1 : -1);
 
-  const kneeX = frontAnkleX - L_SHIN * Math.sin(shinTilt);
-  const kneeY = frontAnkleY - L_SHIN * Math.cos(shinTilt);
-  const dirKneeToAnkle = Math.atan2(frontAnkleY - kneeY, frontAnkleX - kneeX);
-  const dirKneeToHip = dirKneeToAnkle - angle;
-  const hipX = kneeX + L_THIGH * Math.cos(dirKneeToHip);
-  const hipY = kneeY + L_THIGH * Math.sin(dirKneeToHip);
+  // The entire rib-cage pivots about the hip: forward knee-drive is coupled to
+  // trunk compensation but neither spine nor upper limbs can change length.
+  const torsoTilt = (3 + 6 * depth + 32 * kneeDrive) * RAD;
+  const shoulder = {
+    x: hip.x + TORSO * Math.sin(torsoTilt),
+    y: hip.y - TORSO * Math.cos(torsoTilt),
+  };
+  const head = {
+    x: shoulder.x + 50 * Math.sin(torsoTilt) + 8 * Math.cos(torsoTilt),
+    y: shoulder.y - 50 * Math.cos(torsoTilt) + 8 * Math.sin(torsoTilt),
+  };
 
-  const normalTorsoTilt = 2 + 3 * squatRatio;
-  const torsoTiltDeg = normalTorsoTilt + 38 * lungeKneeOverToes;
-  const torsoRad = torsoTiltDeg * Math.PI / 180;
-  const shoulderX = hipX - L_TORSO * Math.sin(torsoRad);
-  const shoulderY = hipY - L_TORSO * Math.cos(torsoRad);
+  // Natural arms: mild shoulder swing and elbow flexion; wrists finish near
+  // the belt-line rather than acting like an implausible single straight rod.
+  const upperTilt = (8 + 12 * depth + 6 * kneeDrive) * RAD;
+  const foreTilt = (-32 - 13 * depth - 6 * kneeDrive) * RAD;
+  const elbow = {
+    x: shoulder.x + UPPER * Math.sin(upperTilt),
+    y: shoulder.y + UPPER * Math.cos(upperTilt),
+  };
+  const wrist = {
+    x: elbow.x + FOREARM * Math.sin(foreTilt),
+    y: elbow.y + FOREARM * Math.cos(foreTilt),
+  };
 
-  const headX = shoulderX - 50 * Math.sin(torsoRad) - 8 * Math.cos(torsoRad);
-  const headY = shoulderY - 50 * Math.cos(torsoRad) + 8 * Math.sin(torsoRad);
-
-  const armRad = (10 + 15 * squatRatio + 10 * lungeKneeOverToes) * Math.PI / 180;
-  const elbowX = shoulderX - L_UPPER * Math.sin(armRad);
-  const elbowY = shoulderY + L_UPPER * Math.cos(armRad);
-  const wristX = elbowX - L_FOREARM * Math.sin(armRad);
-  const wristY = elbowY + L_FOREARM * Math.cos(armRad);
-
-  // Back leg (far side silhouette)
-  const far = 18.0;
-  const backHipX = hipX + far, backHipY = hipY;
-  const backThighTilt = (4 + 6 * squatRatio) * Math.PI / 180;
-  const backKneeX = backHipX - L_THIGH * Math.sin(backThighTilt);
-  const backKneeY = backHipY + L_THIGH * Math.cos(backThighTilt);
-
-  const backKneeAngle = (168 - (168 - 92) * squatRatio) * Math.PI / 180;
-  const dirBackThigh = Math.atan2(backKneeY - backHipY, backKneeX - backHipX);
-  const dirBackShin = dirBackThigh - (Math.PI - backKneeAngle);
-  const backAnkleX = backKneeX + L_SHIN * Math.cos(dirBackShin);
-  const backAnkleY = backKneeY + L_SHIN * Math.sin(dirBackShin);
-
-  // Near side: Left (primary measured side)
-  put(points, 23, hipX / W, hipY / H);
-  put(points, 25, kneeX / W, kneeY / H);
-  put(points, 27, frontAnkleX / W, frontAnkleY / H);
-  put(points, 29, (frontAnkleX - 25) / W, (frontAnkleY + 5) / H);
-  put(points, 31, (frontAnkleX + 15) / W, (frontAnkleY + 5) / H);
-  put(points, 11, shoulderX / W, shoulderY / H);
-  put(points, 13, elbowX / W, elbowY / H);
-  put(points, 15, wristX / W, wristY / H);
-  put(points, 0, headX / W, headY / H);
-
-  // Far side: Right
-  const putFar = (idx, x, y) => { points[idx] = { x, y, visibility: 0.90 }; };
-  putFar(24, backHipX / W, backHipY / H);
-  putFar(26, backKneeX / W, backKneeY / H);
-  putFar(28, backAnkleX / W, backAnkleY / H);
-  putFar(30, (backAnkleX - 20) / W, (backAnkleY + 5) / H);
-  putFar(32, (backAnkleX + 15) / W, (backAnkleY + 5) / H);
-  putFar(12, (shoulderX + far) / W, shoulderY / H);
-  putFar(14, (elbowX + far) / W, elbowY / H);
-  putFar(16, (wristX + far) / W, wristY / H);
-
-  return points;
+  const set = (id, pt, visibility = 0.99) => {
+    p[id] = { x: pt.x / W, y: pt.y / H, visibility };
+  };
+  const near = [
+    [23, hip], [25, frontKnee], [27, frontAnkle],
+    [11, shoulder], [13, elbow], [15, wrist],
+  ];
+  for (const [i, pt] of near) set(i, pt);
+  // View-depth offset is applied to an ENTIRE chain, not individual joints.
+  // This preserves exact lengths on the far side as well as the near side.
+  const FAR = { x: 18, y: -3 };
+  for (const [i, pt] of [
+    [24, hip], [26, rearKnee], [28, rearAnkle],
+    [12, shoulder], [14, elbow], [16, wrist],
+  ]) {
+    set(i, { x: pt.x + FAR.x, y: pt.y + FAR.y }, 0.90);
+  }
+  // Fixed-length, planted feet (rear heel and front toes point forward).
+  // Translation of the rear foot into its *initial* stance is not animated.
+  const frontToe = { x: frontAnkle.x + 32, y: frontAnkle.y + 6 };
+  const frontHeel = { x: frontAnkle.x - 16, y: frontAnkle.y + 4 };
+  const rearToe = { x: rearAnkle.x + 30, y: rearAnkle.y + 6 };
+  const rearHeel = { x: rearAnkle.x - 16, y: rearAnkle.y + 4 };
+  set(29, frontHeel); set(31, frontToe);
+  set(30, { x: rearHeel.x + FAR.x, y: rearHeel.y + FAR.y }, 0.90);
+  set(32, { x: rearToe.x + FAR.x, y: rearToe.y + FAR.y }, 0.90);
+  set(0, head);
+  return p;
 }
 
-function simulatePushup(elapsedMs, options, activeFaultIndex, t, angleDeg, pushupSaggingHips) {
-  const points = blank();
+// Full-body push-up with both contact points fixed. The elbows fold towards
+// the FEET (not past the hands). Hip sag is the exact two-circle IK branch of a
+// rigid torso and straight rigid legs, never a direct pixel displacement.
+function simulatePushup(elapsedMs, options, activeFaultIndex, t, angleDeg, sagEnvelope) {
+  const p = blank();
   const W = 960, H = 540;
-  const L_UPPER = 92.0, L_FOREARM = 88.0;
-  const L_TORSO = 145.0, L_THIGH = 115.0, L_SHIN = 110.0;
-  const L_LEG = L_THIGH + L_SHIN;
-  const L_BODY = L_LEG + L_TORSO;
-  const angle = angleDeg * Math.PI / 180;
+  const UPPER = 92, FOREARM = 88, TORSO = 145, THIGH = 115, SHIN = 110;
+  const LEG = THIGH + SHIN;
+  const BODY = LEG + TORSO;
+  const RAD = Math.PI / 180;
+  const ankle = { x: 240, y: 445 }; // planted rear foot
+  const wrist = { x: 600, y: 460 }; // planted palm
 
-  const ankleX = 240, ankleY = 445;
-  const wristX = 600, wristY = 460;
-  const ankle = { x: ankleX, y: ankleY };
-  const wrist = { x: wristX, y: wristY };
+  // Exact distance between shoulder and wrist for the target elbow angle.
+  const armReach = Math.sqrt(UPPER * UPPER + FOREARM * FOREARM -
+    2 * UPPER * FOREARM * Math.cos(angleDeg * RAD));
+  // Sag compresses the ankle-to-shoulder span (NOT any individual bone).
+  // 12.5px gives ~30.6deg of downward hip break at peak, past the 25deg
+  // posture threshold while the pelvis remains visibly above the floor.
+  // IMPORTANT: IK near the fully straight body has a square-root branch.
+  // Squaring the quintic envelope makes the actual hip excursion O(envelope),
+  // retaining C2 positional smoothness at both fade-in and fade-out.
+  const bodyReach = BODY - 12.5 * sagEnvelope * sagEnvelope;
+  const shoulder = rigidTwoLink(ankle, wrist, bodyReach, armReach, -1);
+  const elbow = rigidTwoLink(shoulder, wrist, UPPER, FOREARM, +1);
+  const hip = sagEnvelope < 1e-12
+    ? { x: ankle.x + (LEG / BODY) * (shoulder.x - ankle.x),
+        y: ankle.y + (LEG / BODY) * (shoulder.y - ankle.y) }
+    : rigidTwoLink(ankle, shoulder, LEG, TORSO, +1);
+  // Knee is fixed on the straight ankle-to-hip link. A small knee flexion can
+  // later be introduced by another 2-link solve without moving the contacts.
+  const knee = {
+    x: ankle.x + (SHIN / LEG) * (hip.x - ankle.x),
+    y: ankle.y + (SHIN / LEG) * (hip.y - ankle.y),
+  };
+  const torsoAxis = Math.atan2(shoulder.y - hip.y, shoulder.x - hip.x);
+  const head = {
+    x: shoulder.x + 45 * Math.cos(torsoAxis),
+    y: shoulder.y + 45 * Math.sin(torsoAxis),
+  };
 
-  const R = Math.sqrt(L_UPPER * L_UPPER + L_FOREARM * L_FOREARM - 2 * L_UPPER * L_FOREARM * Math.cos(angle));
-
-  const shoulderDist = L_BODY - 14 * pushupSaggingHips;
-  const shoulder = rigidTwoLink(ankle, wrist, shoulderDist, R, -1);
-  const elbow = rigidTwoLink(shoulder, wrist, L_UPPER, L_FOREARM, -1);
-
-  const hip = pushupSaggingHips === 0
-    ? { x: ankle.x + (L_LEG / L_BODY) * (shoulder.x - ankle.x), y: ankle.y + (L_LEG / L_BODY) * (shoulder.y - ankle.y) }
-    : rigidTwoLink(ankle, shoulder, L_LEG, L_TORSO, +1);
-
-  const knee = { x: ankle.x + (L_SHIN / L_LEG) * (hip.x - ankle.x), y: ankle.y + (L_SHIN / L_LEG) * (hip.y - ankle.y) };
-
-  const bodyDir = Math.atan2(shoulder.y - hip.y, shoulder.x - hip.x);
-  const headX = shoulder.x + 45 * Math.cos(bodyDir);
-  const headY = shoulder.y + 45 * Math.sin(bodyDir);
-
-  put(points, 11, shoulder.x / W, shoulder.y / H);
-  put(points, 13, elbow.x / W, elbow.y / H);
-  put(points, 15, wrist.x / W, wrist.y / H);
-  put(points, 23, hip.x / W, hip.y / H);
-  put(points, 25, knee.x / W, knee.y / H);
-  put(points, 27, ankle.x / W, ankle.y / H);
-  put(points, 29, (ankle.x - 20) / W, (ankle.y + 15) / H);
-  put(points, 31, (ankle.x - 25) / W, (ankle.y + 12) / H);
-  put(points, 0, headX / W, headY / H);
-
-  const putFar = (idx, x, y) => { points[idx] = { x, y, visibility: 0.90 }; };
-  putFar(12, (shoulder.x - 12) / W, (shoulder.y - 10) / H);
-  putFar(14, (elbow.x - 12) / W, (elbow.y - 10) / H);
-  putFar(16, (wrist.x - 12) / W, (wrist.y - 5) / H);
-  putFar(24, (hip.x - 10) / W, (hip.y - 10) / H);
-  putFar(26, (knee.x - 10) / W, (knee.y - 10) / H);
-  putFar(28, (ankle.x - 10) / W, (ankle.y - 8) / H);
-  putFar(30, (ankle.x - 30) / W, (ankle.y + 7) / H);
-  putFar(32, (ankle.x - 35) / W, (ankle.y + 4) / H);
-
-  return points;
+  const set = (id, pt, v = 0.99) => {
+    p[id] = { x: pt.x / W, y: pt.y / H, visibility: v };
+  };
+  const near = [[11, shoulder], [13, elbow], [15, wrist],
+    [23, hip], [25, knee], [27, ankle]];
+  for (const [id, pt] of near) set(id, pt);
+  // Duplicate the far silhouette with ONE rigid view-depth transform for
+  // every joint. This also fixes the original far-side limb-length drift.
+  const FAR = { x: -13, y: -9 };
+  for (const [i, pt] of [[12, shoulder], [14, elbow], [16, wrist],
+    [24, hip], [26, knee], [28, ankle]]) {
+    set(i, { x: pt.x + FAR.x, y: pt.y + FAR.y }, 0.90);
+  }
+  const toe = { x: ankle.x - 26, y: ankle.y + 13 };
+  const heel = { x: ankle.x + 13, y: ankle.y - 6 };
+  set(29, heel); set(31, toe);
+  set(30, { x: heel.x + FAR.x, y: heel.y + FAR.y }, 0.90);
+  set(32, { x: toe.x + FAR.x, y: toe.y + FAR.y }, 0.90);
+  set(0, head);
+  return p;
 }
 
 export function simulatePose(elapsedMs, exerciseId, options = {}) {

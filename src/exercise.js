@@ -406,7 +406,14 @@ export function checkPostureFault(landmarks, exerciseId, side = '左侧', option
     const dxTorso = Math.abs(shPx.x - hipPx.x);
     const dyTorso = hipPx.y - shPx.y;
     const torsoLean = dyTorso > 10 ? Math.atan2(dxTorso, dyTorso) * 180 / Math.PI : 0;
-    const kneeForward = Math.abs(kneePx.x - anklePx.x);
+    // Side-view forward direction is defined by the planted foot's toe,
+    // not by an absolute knee/ankle offset: a knee BEHIND the ankle is not
+    // knee-over-toes. This prevents false alarms in a long split stance.
+    const toe = landmarks[isLeft ? 31 : 32];
+    const toePx = toe && (toe.visibility ?? 1) >= 0.45 ? toPixelPoint(toe) : null;
+    const facing = toePx && Math.abs(toePx.x - anklePx.x) > 4
+      ? Math.sign(toePx.x - anklePx.x) : 1;
+    const kneeForward = Math.max(0, (kneePx.x - anklePx.x) * facing);
     if (kneeForward > 44 || torsoLean > 35) {
       return { code: 'knee_over_toes', message: '保持躯干笔直中立，前膝避免过度前冲超过脚尖', value: Math.round(Math.max(kneeForward, torsoLean)) };
     }
