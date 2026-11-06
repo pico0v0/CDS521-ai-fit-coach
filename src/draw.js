@@ -9,12 +9,7 @@ const MAX_CANVAS_PIXELS = 2500000;
 const BREATH_SPEED = 0.0022;
 const BREATH_LIFT = 0.0054;
 const HEAD_DRIFT = 0.0025;
-const CURL_SWING_NORMAL = 0.03;
 const CURL_SWING_THRESHOLD = 0.11;
-const CURL_SWING_PERIOD = 4700;
-const CURL_SWING_START = 0.38;
-const CURL_SWING_END = 0.65;
-const CURL_SWING_EASE_MS = 180;
 const GROUND_RADIUS = 173;
 const GROUND_PULSE_RADIUS = 12;
 const GROUND_THICKNESS = 12;
@@ -79,7 +74,7 @@ function segment(ctx, x1, y1, x2, y2, color, lineWidth) {
 // Demo-only projection. It never changes the landmarks sent to the analyzer.
 // The side-view samples overlap by design; separating their far limbs makes
 // the synthetic figure readable while retaining the tracked joint geometry.
-function displayPose(landmarks, exercise, time, aspect = 540 / 960) {
+function displayPose(landmarks, exercise) {
   const pose = landmarks.map(p => p ? { ...p } : p);
   const has = i => pose[i] && (pose[i].visibility ?? 1) >= 0.35;
   const move = (i, x, y) => {
@@ -89,37 +84,16 @@ function displayPose(landmarks, exercise, time, aspect = 540 / 960) {
     }
   };
   if (exercise === 'curl') {
-    // Geometry is already eased in simulatePose. Do NOT re-animate the
-    // elbow/wrist here: rendered joints and analyzer joints must coincide.
-    // Keep the original elbow-wrist arc: reflecting the wrist across the upper
-    // arm made the visible forearm cross the torso at peak flexion.
-    const sh = pose[11], hip = pose[23];
-    if (has(11)) move(12, sh.x - 0.095, sh.y + 0.004);
-    if (has(23)) move(24, hip.x - 0.074, hip.y);
-    if (has(25)) move(26, pose[25].x - 0.070, pose[25].y);
-    if (has(27)) move(28, pose[27].x - 0.072, pose[27].y);
-    if (has(28)) move(30, pose[28].x - 0.022, pose[28].y + 0.008);
-    if (has(12) && has(11)) move(14, pose[12].x - 0.016, sh.y + 0.165);
-    if (has(14)) move(16, pose[14].x - 0.012, pose[14].y + 0.150);
-    if (has(11) && has(12) && has(0)) move(0, (pose[11].x + pose[12].x) / 2, pose[0].y);
-    // Isotropic demo projection: shoulder, elbow and wrist retain their true
-    // simulated angle and constant segment lengths even during injected swing.
-    for (const p of pose) {
-      if (p && Number.isFinite(p.x)) p.x = 0.5 + (p.x - 0.5) * aspect;
+    // All far-side landmarks are moved by one rigid 2D translation only.
+    // The near-side measured shoulder/elbow/wrist are NEVER altered.
+    for (const i of [12, 14, 16, 24, 26, 28, 30]) {
+      if (has(i)) move(i, pose[i].x - 0.055, pose[i].y);
     }
   } else if (exercise === 'squat') {
-    for (const [far, near] of [[12,11],[24,23],[26,25],[28,27],[30,29],[32,31]]) {
-      if (has(near) && has(far)) {
-        pose[far].x = pose[near].x + 0.048;
-        pose[far].y = pose[near].y + (far === 28 ? 0.007 : 0);
-      }
-    }
-    if (has(0)) pose[0].x += 0.018;
-    for (const [far, near] of [[14,13],[16,15]]) {
-      if (has(near) && has(far)) {
-        pose[far].x = pose[near].x + 0.045;
-        pose[far].y = pose[near].y + 0.007;
-      }
+    // Spread the far-side silhouette without changing either side's lengths.
+    // Old independent offsets altered the shin and upper-arm pixel lengths.
+    for (const i of [12, 14, 16, 24, 26, 28, 30, 32]) {
+      if (has(i)) move(i, pose[i].x + 0.028, pose[i].y);
     }
   }
   return pose;
@@ -127,7 +101,7 @@ function displayPose(landmarks, exercise, time, aspect = 540 / 960) {
 
 function drawDemoSkeleton(ctx, landmarks, exercise, options) {
   const { width, height, highlightJoints, angle, depthProgress, time, label, backingScale } = options;
-  const pts = displayPose(landmarks, exercise, time, height / width);
+  const pts = displayPose(landmarks, exercise);
   const visible = p => p && (p.visibility ?? 1) >= 0.35 && Number.isFinite(p.x) && Number.isFinite(p.y);
   const xy = i => [pts[i].x * width, pts[i].y * height];
   const active = new Set(highlightJoints || []);

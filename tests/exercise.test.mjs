@@ -544,3 +544,76 @@ test('STATE-01 regression: resetIncompleteRep clears active rep state on mode sw
   assert.equal(analyzer.count, 1, 'Clean cycle completes exactly 1 rep');
   assert.equal(analyzer.partialCount, 0, 'No corrupted partial count was produced from prior switched state');
 });
+
+// Refinement regressions: sample every millisecond, including both transitions.
+// These check physical pixel distances, not distances in normalized coordinates.
+test('REFINE-01: fixed segment lengths for both sides across every fault-mode frame', () => {
+  const specs = {
+    squat: [[27,25,118.8],[25,23,113.4],[23,11,124.2],[11,13,45.9],[13,15,45.9],
+      [28,26,118.8],[26,24,113.4],[24,12,124.2],[12,14,45.9],[14,16,45.9]],
+    curl: [[11,13,150],[13,15,128],[12,14,150],[14,16,128],[11,23,145.8],[12,24,145.8]],
+  };
+  for (const exercise of ['squat', 'curl']) {
+    for (const mode of ['standard', 'fault']) {
+      for (let ms = 0; ms <= 4700; ms++) {
+        const p = simulatePose(ms, exercise, { mode, faultIndex: 0 });
+        for (const [a,b,expected] of specs[exercise]) {
+          const length = Math.hypot((p[a].x-p[b].x)*960, (p[a].y-p[b].y)*540);
+          assert.ok(Math.abs(length - expected) < 1e-8,
+            `${exercise} ${mode} at ${ms}ms: ${a}-${b} expected ${expected}px, got ${length}`);
+        }
+      }
+    }
+  }
+});
+
+test('REFINE-02: pixel-rendered hinge angles equal simulated and measured angles', () => {
+  for (const exercise of ['squat','curl']) {
+    for (const mode of ['standard','fault']) {
+      for (let ms = 0; ms <= 4700; ms += 7) {
+        const pose = simulatePose(ms, exercise, { mode, faultIndex: 0 });
+        const [a,b,c] = exercise === 'squat' ? [27,25,23] : [11,13,15];
+        const px = [a,b,c].map(i=>({x:pose[i].x*960,y:pose[i].y*540}));
+        const pixelAngle = angleDegrees(...px);
+        const analyzedAngle = extractJointAngle(pose, exercise)?.angle;
+        const target = simulatedAngle(ms, exercise, { mode, faultIndex: 0 });
+        assert.ok(Math.abs(pixelAngle-target) < 1e-8, `${exercise} at ${ms}: pixel angle mismatch`);
+        assert.ok(Math.abs(analyzedAngle-target) < 1e-8, `${exercise} at ${ms}: analyzer mismatch`);
+      }
+    }
+  }
+});
+
+test('REFINE-03: error peaks and alerts are continuous, transient, and repeat at 4700ms', () => {
+  for (const [exercise, expected] of [['squat','trunk_lean'],['curl','arm_swing']]) {
+    const options = { mode:'fault', faultIndex:0 };
+    const found = [];
+    let prev = simulatePose(0,exercise,options);
+    for(let ms=0;ms<=4700;ms++) {
+      const pose = simulatePose(ms,exercise,options);
+      const flag = checkPostureFault(pose,exercise)?.code;
+      if(flag) {
+        assert.equal(flag,expected);
+        found.push(ms);
+      }
+      for(const i of [0,11,13,15,23,25,27]) {
+        if(ms>0) {
+          const travel=Math.hypot((pose[i].x-prev[i].x)*960,(pose[i].y-prev[i].y)*540);
+          assert.ok(travel < 0.8, `${exercise} teleports joint ${i} at ${ms}: ${travel}px/ms`);
+        }
+      }
+      prev=pose;
+    }
+    assert.ok(found.length > 150 && found[0] > 0.38*4700 && found.at(-1) < 0.65*4700,
+      `${exercise} warning must be sustained in the error region`);
+    assert.equal(checkPostureFault(simulatePose(0,exercise,options),exercise),null);
+    assert.equal(checkPostureFault(simulatePose(4700,exercise,options),exercise),null);
+    const peak = simulatePose(0.5*4700,exercise,options);
+    assert.equal(checkPostureFault(peak,exercise)?.code,expected);
+    const repeated = simulatePose(4700+0.5*4700,exercise,options);
+    for(const i of [11,13,15,23,25,27]) {
+      assert.equal(peak[i].x,repeated[i].x);
+      assert.equal(peak[i].y,repeated[i].y);
+    }
+  }
+});

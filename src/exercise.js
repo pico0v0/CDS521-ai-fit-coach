@@ -222,8 +222,9 @@ export function extractJointAngle(landmarks, exerciseId, options = 0.6) {
     const rawPts = ids.map(i => landmarks[i]);
     if (rawPts.some(p => !p || !Number.isFinite(p.x) || !Number.isFinite(p.y) ||
       (p.visibility ?? 1) < visibilityThreshold)) continue;
-    // Squat joint angles must be evaluated in isotropic pixel space to eliminate aspect ratio distortion (GEO-01)
-    const pts = exerciseId === 'squat' ? rawPts.map(p => toPixelPoint(p)) : rawPts;
+    // Squat and curl use rigid links in the same 960x540 pixel coordinate system.
+    const pts = exerciseId === 'squat' || exerciseId === 'curl'
+      ? rawPts.map(p => toPixelPoint(p)) : rawPts;
     const angle = angleDegrees(...pts);
     const score = Math.min(...rawPts.map(p => p.visibility ?? 1));
     if (angle !== null) {
