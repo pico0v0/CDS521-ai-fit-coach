@@ -89,26 +89,8 @@ function displayPose(landmarks, exercise, time, aspect = 540 / 960) {
     }
   };
   if (exercise === 'curl') {
-    // Smooth only the display of deliberate arm-swing faults. Raw landmarks
-    // still reach the analyzer immediately, with the original 0.13 drift.
-    if (has(11) && has(13) && has(15) && pose[13].x - pose[11].x > CURL_SWING_THRESHOLD) {
-      const shoulder = pose[11], elbow = pose[13], wrist = pose[15];
-      const phaseMs = ((time % CURL_SWING_PERIOD) + CURL_SWING_PERIOD) % CURL_SWING_PERIOD;
-      const enter = Math.max(0, Math.min(1, (phaseMs - CURL_SWING_START * CURL_SWING_PERIOD) / CURL_SWING_EASE_MS));
-      const leave = Math.max(0, Math.min(1, (CURL_SWING_END * CURL_SWING_PERIOD - phaseMs) / CURL_SWING_EASE_MS));
-      const blend = Math.min(enter, leave);
-      const eased = blend * blend * (3 - 2 * blend);
-      const dx = elbow.x - shoulder.x, dy = elbow.y - shoulder.y;
-      const upperLen = Math.hypot(dx, dy);
-      const visualDx = CURL_SWING_NORMAL + (dx - CURL_SWING_NORMAL) * eased;
-      const visualDy = Math.sqrt(Math.max(0, upperLen * upperLen - visualDx * visualDx));
-      const turn = Math.atan2(visualDy, visualDx) - Math.atan2(dy, dx);
-      const foreX = wrist.x - elbow.x, foreY = wrist.y - elbow.y;
-      const elbowX = shoulder.x + visualDx, elbowY = shoulder.y + visualDy;
-      move(13, elbowX, elbowY);
-      move(15, elbowX + foreX * Math.cos(turn) - foreY * Math.sin(turn),
-        elbowY + foreX * Math.sin(turn) + foreY * Math.cos(turn));
-    }
+    // Geometry is already eased in simulatePose. Do NOT re-animate the
+    // elbow/wrist here: rendered joints and analyzer joints must coincide.
     // Keep the original elbow-wrist arc: reflecting the wrist across the upper
     // arm made the visible forearm cross the torso at peak flexion.
     const sh = pose[11], hip = pose[23];

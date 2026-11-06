@@ -2,6 +2,22 @@
 function blank() { return Array.from({ length: 33 }, () => ({ x: 0, y: 0, visibility: 0 })); }
 function put(points, index, x, y) { points[index] = { x, y, visibility: 0.99 }; }
 
+// C2-continuous joint actuation: zero velocity/acceleration at either end.
+function smootherstep(x) {
+  const u = Math.max(0, Math.min(1, x));
+  return u * u * u * (u * (u * 6 - 15) + 10);
+}
+
+// Fault is activated during approach, sustained through reversal and released
+// after extension begins. No binary positional jump at t=.38/.65.
+function faultEnvelope(t) {
+  if (t <= 0.27 || t >= 0.76) return 0;
+  if (t < 0.46) return smootherstep((t - 0.27) / 0.19);
+  if (t <= 0.57) return 1;
+  return 1 - smootherstep((t - 0.57) / 0.19);
+}
+
+
 export function simulatedAngle(elapsedMs, exerciseId, options = {}) {
   const period = 4700;
   const cycle = Math.floor(elapsedMs / period);
@@ -66,11 +82,11 @@ export function simulatePose(elapsedMs, exerciseId, options = {}) {
     if (exerciseId === 'squat') {
       // 0: trunk_lean (injected at bottom)
       // 1: shallow_squat (depth handled by simulatedAngle)
-      injectFault = activeFaultIndex === 0 && t >= 0.38 && t <= 0.65;
+      injectFault = activeFaultIndex === 0;
     } else if (exerciseId === 'curl') {
       // 0: arm_swing (elbow flare during curl)
       // 1: shallow_curl (depth handled by simulatedAngle)
-      injectFault = activeFaultIndex === 0 && t >= 0.38 && t <= 0.65;
+      injectFault = activeFaultIndex === 0;
     } else if (exerciseId === 'jumping_jack') {
       // 0: asymmetry_or_desync (arms overhead, legs close early)
       // 1: arm_asymmetry (right arm restricted)
@@ -85,6 +101,7 @@ export function simulatePose(elapsedMs, exerciseId, options = {}) {
   const points = blank();
   const angleDeg = simulatedAngle(elapsedMs, exerciseId, options);
   const angle = angleDeg * Math.PI / 180;
+  const severity = injectFault ? faultEnvelope(t) : 0;
 
   if (exerciseId === 'jumping_jack') {
     const leftTheta = angle;
@@ -149,23 +166,26 @@ export function simulatePose(elapsedMs, exerciseId, options = {}) {
     const hipX = kneeX + L_thigh * Math.cos(phi_KH);
     const hipY = kneeY + L_thigh * Math.sin(phi_KH);
 
-    // 3. Torso: double-parallel line law in pixel space (constant 124.20px Euclidean length)
-    // Standard form: 3° standing -> 22° at full squat depth (diff = 2.00° <= 3.00° parallel)
-    // On trunk lean fault: 52° forward tilt (> 46° fault threshold)
-    const torsoTiltRad = (injectFault ? 52 : (3 + 19 * squatRatio)) * Math.PI / 180;
+    // 3. Hip-driven torso hinge. The fault is a *rotation around the hip*;
+    // projecting the entire shoulder separately would stretch the torso.
+    // Standard depth: 20° shin versus 22° trunk (parallel tolerance 2°).
+    // Fault peak: 60° forward trunk inclination, exceeding the 46° rule.
+    const neutralTrunk = 3 + 19 * squatRatio;
+    const torsoTiltRad = (neutralTrunk + 38 * severity) * Math.PI / 180;
     const shoulderX = hipX - L_torso * Math.sin(torsoTiltRad);
     const shoulderY = hipY - L_torso * Math.cos(torsoTiltRad);
 
-    // 4. Arms: raise forward horizontally to counterbalance (constant 91.80px Euclidean length)
-    const armAngle = (25 + 65 * squatRatio) * Math.PI / 180;
+    // 4. Forward reaching arms react to trunk pitch, with fixed segment lengths.
+    // Keep the horizontal reach at depth but avoid wrist snapping on recovery.
+    const armAngle = (25 + 65 * squatRatio + 3 * severity) * Math.PI / 180;
     const elbowX = shoulderX - L_arm * 0.5 * Math.sin(armAngle);
     const elbowY = shoulderY + L_arm * 0.5 * Math.cos(armAngle);
     const wristX = shoulderX - L_arm * Math.sin(armAngle);
     const wristY = shoulderY + L_arm * Math.cos(armAngle);
 
     // 5. Head: natural neck alignment
-    const headX = shoulderX - 40 * Math.sin(torsoTiltRad);
-    const headY = shoulderY - 40 * Math.cos(torsoTiltRad) - 20;
+    const headX = shoulderX - 54 * Math.sin(torsoTiltRad);
+    const headY = shoulderY - 54 * Math.cos(torsoTiltRad);
 
     put(points, 23, hipX / W, hipY / H); put(points, 24, (hipX + 19.2) / W, hipY / H);
     put(points, 25, kneeX / W, kneeY / H); put(points, 26, (kneeX + 19.2) / W, kneeY / H);
@@ -177,41 +197,51 @@ export function simulatePose(elapsedMs, exerciseId, options = {}) {
     put(points, 15, wristX / W, wristY / H); put(points, 16, (wristX + 19.2) / W, wristY / H);
     put(points, 0, headX / W, headY / H);
   } else {
-    const angleDeg = simulatedAngle(elapsedMs, exerciseId, options);
+    // Curl is authored in isotropic units (one normalized unit = 540px).
+    // draw.js then applies x'=0.5+(x-0.5)*540/960 for pixel-exact display.
     const shoulderX = 0.52, shoulderY = 0.28;
     const L_upper = 0.20, L_fore = 0.18;
+    const L_torso = 0.27;
 
-    // 1. Torso & lower body: upright, stable, anatomically grounded
+    // Realistic momentum compensation: slight posterior torso rocking while
+    // shoulder and hip remain a single rigid segment (145.8px on display).
+    // Torso tilt is modest; elbow swing is the diagnostic fault itself.
+    const trunkRock = (6 * severity) * Math.PI / 180;
+    const hipX = shoulderX + L_torso * Math.sin(trunkRock);
+    const hipY = shoulderY + L_torso * Math.cos(trunkRock);
     put(points, 11, shoulderX, shoulderY);
     put(points, 12, shoulderX - 0.025, shoulderY);
-    put(points, 0, shoulderX, shoulderY - 0.10);
+    put(points, 0, shoulderX - 0.10 * Math.sin(trunkRock),
+      shoulderY - 0.10 * Math.cos(trunkRock));
 
-    put(points, 23, shoulderX, 0.55); put(points, 24, shoulderX - 0.025, 0.55);
-    put(points, 25, shoulderX, 0.72); put(points, 26, shoulderX - 0.025, 0.72);
-    put(points, 27, shoulderX, 0.88); put(points, 28, shoulderX - 0.025, 0.88);
-    put(points, 29, shoulderX - 0.025, 0.89); put(points, 30, shoulderX - 0.045, 0.89);
+    put(points, 23, hipX, hipY);
+    put(points, 24, hipX - 0.025, hipY);
+    const kneeX = hipX + 0.005, kneeY = hipY + 0.17;
+    put(points, 25, kneeX, kneeY); put(points, 26, kneeX - 0.025, kneeY);
+    put(points, 27, kneeX, kneeY + 0.16); put(points, 28, kneeX - 0.025, kneeY + 0.16);
+    put(points, 29, kneeX - 0.025, kneeY + 0.17);
+    put(points, 30, kneeX - 0.045, kneeY + 0.17);
 
-    // Non-active arm hangs naturally by side
+    // Inactive arm: preserve a fixed 0.17 + 0.16 length side chain.
     put(points, 14, shoulderX - 0.025, shoulderY + 0.17);
     put(points, 16, shoulderX - 0.025, shoulderY + 0.33);
 
-    // 2. Upper arm: pinned close to torso (drift = 0.03 <= 0.11); swings forward on fault (drift = 0.13 > 0.11)
-    const swingOffset = injectFault ? 0.13 : 0.03;
-    const elbowX = shoulderX + swingOffset;
-    // Curl joints use one isotropic coordinate system; demo rendering uses the
-    // same scale on both axes, so even the injected swing keeps a rigid upper arm.
+    // Shoulder -> elbow stays at exactly 0.20 * 540 = 108px, even at
+    // maximum momentum-driven anterior drift (0.145 normalized ≈ 78.3px).
+    // This deliberately crosses the exercise.js strict >0.11 alarm threshold.
+    const swingOffset = 0.025 + 0.12 * severity;
     const dy = Math.sqrt(L_upper * L_upper - swingOffset * swingOffset);
+    const elbowX = shoulderX + swingOffset;
     const elbowY = shoulderY + dy;
     put(points, 13, elbowX, elbowY);
 
-    // 3. Forearm: rigid rotation about the elbow, preserving the analyzer angle
-    const vES_x = shoulderX - elbowX;
-    const vES_y = shoulderY - elbowY;
-    const normAlpha = Math.atan2(vES_y, vES_x);
-    const targetWristAngle = normAlpha + angleDeg * Math.PI / 180;
-    const wristX = elbowX + L_fore * Math.cos(targetWristAngle);
-    const wristY = elbowY + L_fore * Math.sin(targetWristAngle);
-    put(points, 15, wristX, wristY);
+    // Exact elbow flexion by rotation of a constant-length forearm.
+    // Angle is measured as shoulder-elbow-wrist (not horizontal orientation).
+    const upperBackAngle = Math.atan2(shoulderY - elbowY, shoulderX - elbowX);
+    const wristAngle = upperBackAngle + angle;
+    put(points, 15,
+      elbowX + L_fore * Math.cos(wristAngle),
+      elbowY + L_fore * Math.sin(wristAngle));
   }
   return points;
 }
