@@ -135,6 +135,14 @@ export const EXERCISE_GUIDES = Object.freeze({
   }
 });
 
+export function toPixelPoint(p, width = 960, height = 540) {
+  if (!p) return null;
+  if (p.x <= 2 && p.y <= 2) {
+    return { x: p.x * width, y: p.y * height, visibility: p.visibility };
+  }
+  return p;
+}
+
 export function angleDegrees(a, b, c) {
   if (![a, b, c].every(p => p && Number.isFinite(p.x) && Number.isFinite(p.y))) return null;
   const abx = a.x - b.x; const aby = a.y - b.y;
@@ -211,11 +219,13 @@ export function extractJointAngle(landmarks, exerciseId, options = 0.6) {
 
   let candidates = [];
   for (const { ids, side } of sideConfigs) {
-    const pts = ids.map(i => landmarks[i]);
-    if (pts.some(p => !p || !Number.isFinite(p.x) || !Number.isFinite(p.y) ||
+    const rawPts = ids.map(i => landmarks[i]);
+    if (rawPts.some(p => !p || !Number.isFinite(p.x) || !Number.isFinite(p.y) ||
       (p.visibility ?? 1) < visibilityThreshold)) continue;
+    // Squat joint angles must be evaluated in isotropic pixel space to eliminate aspect ratio distortion (GEO-01)
+    const pts = exerciseId === 'squat' ? rawPts.map(p => toPixelPoint(p)) : rawPts;
     const angle = angleDegrees(...pts);
-    const score = Math.min(...pts.map(p => p.visibility ?? 1));
+    const score = Math.min(...rawPts.map(p => p.visibility ?? 1));
     if (angle !== null) {
       candidates.push({ angle, confidence: score, side, ids });
     }
@@ -250,9 +260,11 @@ export function checkPostureFault(landmarks, exerciseId, side = '左侧', option
     const shoulder = landmarks[isLeft ? 11 : 12];
     const hip = landmarks[isLeft ? 23 : 24];
     if (!shoulder || !hip || (shoulder.visibility ?? 1) < 0.45 || (hip.visibility ?? 1) < 0.45) return null;
-    const dx = Math.abs(shoulder.x - hip.x);
-    const dy = hip.y - shoulder.y; // shoulder is above hip, so dy > 0
-    if (dy <= 0.02) return null;
+    const shPx = toPixelPoint(shoulder);
+    const hipPx = toPixelPoint(hip);
+    const dx = Math.abs(shPx.x - hipPx.x);
+    const dy = hipPx.y - shPx.y; // shoulder is above hip in canvas coordinates, so dy > 0
+    if (dy <= 10) return null;
     const trunkAngle = Math.atan2(dx, dy) * 180 / Math.PI;
     // Excessive forward trunk lean beyond 46 degrees indicates rounding back / hip compensation
     if (trunkAngle > 46) {
@@ -317,6 +329,28 @@ export class ExerciseAnalyzer {
     this.faultCounts = { trunk_lean: 0, arm_swing: 0, arm_asymmetry: 0 };
     this.lastFaultTimes = {};
     this.currentFault = null;
+    this.minLegSpread = Infinity;
+    this.peakLegSpread = 0;
+    this.minAnkleDist = Infinity;
+    this.peakAnkleDist = 0;
+    this.legTrackingLost = false;
+    this.hadValidLegRatio = false;
+    this.armPeakLegSynchronized = false;
+    this.armPeakTimestamp = null;
+    this.legPeakTimestamp = null;
+    this.legRatioAtArmPeak = null;
+  }
+  /** Reset any in-progress incomplete rep state when demo modes or tabs are switched (STATE-01). */
+  resetIncompleteRep() {
+    this.inRep = false;
+    this.ready = true;
+    this.phase = '已就绪';
+    this.minAngle = 180;
+    this.peakAngle = 0;
+    this.lastSmooth = null;
+    this.depthProgress = 0;
+    this.currentFault = null;
+    this.lastEvent = null;
     this.minLegSpread = Infinity;
     this.peakLegSpread = 0;
     this.minAnkleDist = Infinity;

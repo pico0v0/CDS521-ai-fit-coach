@@ -437,3 +437,110 @@ test('simulatePose in fault mode triggers designated biomechanical fault', () =>
   const swingFault = checkPostureFault(curlSwingPose, 'curl', '左侧');
   assert.equal(swingFault?.code, 'arm_swing', 'Curl fault 0 triggers arm_swing');
 });
+
+test('GEO-01 & GEO-02 regression: squat pixel Euclidean geometry, rigid bone lengths and double-parallel law', () => {
+  const W = 960, H = 540;
+  // Test across entire squat cycle (t = 0 .. 4700ms)
+  for (let t = 0; t <= 4700; t += 200) {
+    const pose = simulatePose(t, 'squat', { mode: 'standard' });
+    const ankle = { x: pose[27].x * W, y: pose[27].y * H };
+    const knee = { x: pose[25].x * W, y: pose[25].y * H };
+    const hip = { x: pose[23].x * W, y: pose[23].y * H };
+    const shoulder = { x: pose[11].x * W, y: pose[11].y * H };
+    const wrist = { x: pose[15].x * W, y: pose[15].y * H };
+
+    const shinLen = Math.hypot(knee.x - ankle.x, knee.y - ankle.y);
+    const thighLen = Math.hypot(hip.x - knee.x, hip.y - knee.y);
+    const torsoLen = Math.hypot(shoulder.x - hip.x, shoulder.y - hip.y);
+    const armLen = Math.hypot(wrist.x - shoulder.x, wrist.y - shoulder.y);
+
+    assert.ok(Math.abs(shinLen - 118.80) < 0.15, `Shin length must be rigid 118.80px at t=${t}, got ${shinLen}`);
+    assert.ok(Math.abs(thighLen - 113.40) < 0.15, `Thigh length must be rigid 113.40px at t=${t}, got ${thighLen}`);
+    assert.ok(Math.abs(torsoLen - 124.20) < 0.15, `Torso length must be rigid 124.20px (GEO-02 no breathing jitter) at t=${t}, got ${torsoLen}`);
+    assert.ok(Math.abs(armLen - 91.80) < 0.15, `Arm length must be rigid 91.80px at t=${t}, got ${armLen}`);
+  }
+
+  // Peak squat lowest point (t = 2350ms): verify double parallel law and pixel knee angle
+  const peakPose = simulatePose(2350, 'squat', { mode: 'standard' });
+  const a = { x: peakPose[27].x * W, y: peakPose[27].y * H };
+  const k = { x: peakPose[25].x * W, y: peakPose[25].y * H };
+  const h = { x: peakPose[23].x * W, y: peakPose[23].y * H };
+  const s = { x: peakPose[11].x * W, y: peakPose[11].y * H };
+
+  const shinTilt = Math.atan2(a.x - k.x, a.y - k.y) * 180 / Math.PI;
+  const torsoTilt = Math.atan2(h.x - s.x, h.y - s.y) * 180 / Math.PI;
+  const parallelDiff = Math.abs(shinTilt - torsoTilt);
+  const pixelKneeAngle = angleDegrees(a, k, h);
+  const reportedSimAngle = simulatedAngle(2350, 'squat', { mode: 'standard' });
+  const jointAngle = extractJointAngle(peakPose, 'squat')?.angle;
+
+  assert.ok(Math.abs(shinTilt - 20.0) < 0.5, `Shin forward tilt at bottom must be ~20°, got ${shinTilt.toFixed(2)}°`);
+  assert.ok(Math.abs(torsoTilt - 22.0) < 0.5, `Torso forward tilt at bottom must be ~22°, got ${torsoTilt.toFixed(2)}°`);
+  assert.ok(parallelDiff <= 3.0, `Double-parallel deviation must be <= 3.0°, got ${parallelDiff.toFixed(2)}°`);
+  assert.ok(Math.abs(pixelKneeAngle - 91.0) < 0.2, `Pixel knee angle must be exactly 91.0°, got ${pixelKneeAngle.toFixed(2)}°`);
+  assert.equal(jointAngle, 91, `Analyzer joint angle must match 91° with zero error`);
+  assert.equal(reportedSimAngle, 91, `Simulated angle must match 91°`);
+});
+
+test('MODE-01 regression: jumping jack fault 1 (arm_asymmetry) preserves full amplitude without shallow rep reduction', () => {
+  // Peak at t = 2350ms for jumping jack fault 1
+  const peakAngle = simulatedAngle(2350, 'jumping_jack', { mode: 'fault', faultIndex: 1 });
+  assert.ok(peakAngle >= 135, `Simulated angle must preserve full target depth (>= 135°), got ${peakAngle}° (must not be reduced to 85° shallow rep)`);
+
+  const peakPose = simulatePose(2350, 'jumping_jack', { mode: 'fault', faultIndex: 1 });
+  const leftAngle = angleDegrees(peakPose[23], peakPose[11], peakPose[15]);
+  const rightAngle = angleDegrees(peakPose[24], peakPose[12], peakPose[16]);
+
+  assert.ok(leftAngle >= 135, `Left arm must reach full overhead peak (>= 135°), got ${leftAngle}°`);
+  assert.ok(Math.abs(leftAngle - rightAngle) > 35, `Asymmetry between arms must exceed 35°, got ${Math.abs(leftAngle - rightAngle)}°`);
+
+  const fault = checkPostureFault(peakPose, 'jumping_jack');
+  assert.equal(fault?.code, 'arm_asymmetry', 'Jumping jack fault 1 must trigger arm_asymmetry fault');
+});
+
+test('MODE-02 regression: 3x3 difficulty matrix in standard demonstration achieves 100% full reps without shallow reps', () => {
+  const exercises = ['squat', 'curl', 'jumping_jack'];
+  const difficulties = ['beginner', 'standard', 'advanced'];
+
+  for (const difficulty of difficulties) {
+    for (const exerciseId of exercises) {
+      const analyzer = new ExerciseAnalyzer(exerciseId, { difficulty });
+      for (let t = 0; t < 4700 * 2; t += 100) {
+        const pose = simulatePose(t, exerciseId, { mode: 'standard', difficulty });
+        const joint = extractJointAngle(pose, exerciseId);
+        analyzer.update({ angle: joint?.angle, visible: !!joint, timestamp: t + 1, landmarks: pose });
+      }
+      assert.equal(analyzer.count, 2, `${exerciseId} in ${difficulty} mode must complete all 2 full reps`);
+      assert.equal(analyzer.partialCount, 0, `${exerciseId} in ${difficulty} mode must have 0 shallow reps`);
+    }
+  }
+});
+
+test('STATE-01 regression: resetIncompleteRep clears active rep state on mode switch preventing cross-mode state bleeding', () => {
+  const analyzer = new ExerciseAnalyzer('squat');
+
+  // Feed partial squat movement until analyzer enters inRep (mid-descent)
+  for (let t = 0; t <= 1800; t += 100) {
+    const pose = simulatePose(t, 'squat', { mode: 'standard' });
+    const joint = extractJointAngle(pose, 'squat');
+    analyzer.update({ angle: joint?.angle, visible: !!joint, timestamp: t + 1, landmarks: pose });
+  }
+  assert.equal(analyzer.inRep, true, 'Analyzer must be inRep midway through squat');
+  assert.ok(analyzer.depthProgress > 0, 'Progress must be non-zero');
+
+  // Trigger mid-rep tab/mode switch reset
+  analyzer.resetIncompleteRep();
+  assert.equal(analyzer.inRep, false, 'inRep must be false immediately after reset');
+  assert.equal(analyzer.ready, true, 'ready must be true');
+  assert.equal(analyzer.depthProgress, 0, 'depthProgress must be reset to 0');
+  assert.equal(analyzer.minAngle, 180, 'minAngle must be reset to 180');
+
+  // Start clean cycle from t = 0 (standing)
+  for (let t = 0; t < 4700; t += 100) {
+    const pose = simulatePose(t, 'squat', { mode: 'standard' });
+    const joint = extractJointAngle(pose, 'squat');
+    analyzer.update({ angle: joint?.angle, visible: !!joint, timestamp: 2000 + t + 1, landmarks: pose });
+  }
+  assert.equal(analyzer.count, 1, 'Clean cycle completes exactly 1 rep');
+  assert.equal(analyzer.partialCount, 0, 'No corrupted partial count was produced from prior switched state');
+});

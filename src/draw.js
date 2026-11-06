@@ -140,16 +140,6 @@ function displayPose(landmarks, exercise, time, aspect = 540 / 960) {
       }
     }
   }
-  // Display-only breathing: move the active arm as a unit, preserving its angle.
-  if (exercise !== 'jumping_jack') {
-    const phase = time * BREATH_SPEED;
-    const breath = Math.sin(phase) * BREATH_LIFT;
-    for (const i of [11,13,15,12]) if (has(i)) pose[i].y += breath;
-    if (has(0)) pose[0].y += breath + Math.sin(phase + 0.7) * HEAD_DRIFT;
-    for (const i of [14,16]) {
-      if (has(i)) pose[i].y += breath + Math.sin(phase + 1.2) * HEAD_DRIFT;
-    }
-  }
   return pose;
 }
 

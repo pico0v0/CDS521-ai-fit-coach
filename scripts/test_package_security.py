@@ -170,6 +170,25 @@ def test_security_scenarios():
         if broken_smoke.is_file():
             broken_smoke.unlink()
 
+    # Scenario 8: HTTPS=true without certificates fails closed (P1-SEC-01)
+    import os
+    env_https = os.environ.copy()
+    env_https['HTTPS'] = 'true'
+    env_https['PORT'] = '8999'
+    sec_https_res = subprocess.run(
+        ['node', str(BASE / 'server.mjs')],
+        cwd=BASE,
+        capture_output=True,
+        text=True,
+        shell=False,
+        env=env_https,
+        stdin=subprocess.DEVNULL,
+        timeout=10
+    )
+    assert sec_https_res.returncode != 0, 'server.mjs must fail closed (exit != 0) when HTTPS=true but certs are missing'
+    assert 'TLS credentials are missing' in sec_https_res.stderr or 'cannot start insecurely' in sec_https_res.stderr
+    print('  ✔ Scenario 8 PASS: HTTPS requested without certificates strictly fails closed (exit code 1, zero silent downgrade)')
+
     print('All package security regression tests PASSED!')
 
 if __name__ == '__main__':

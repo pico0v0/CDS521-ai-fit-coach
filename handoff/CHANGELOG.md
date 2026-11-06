@@ -1,6 +1,60 @@
 # CHANGELOG（每轮 AI 必须追加）
 
-## v0.2.1-r10 — 动作生物力学动力学修正、标准规范示范与常见错误演示彻底拆分、错误成因结构化教学解析面板（2026-11-06）
+## v0.2.1-r11 — 严格欧式像素几何、动作难度全矩阵达标、演示模式状态彻底隔离与安全故障封闭（2026-11-06）
+
+### 审查缺陷彻底修复（针对 AI Fit Coach v0.2.1-r10 独立复审报告 6 项 P1 级缺陷逐一闭环）
+
+1. **GEO-01 [P1/几何系统] 统一像素坐标几何空间，严格闭环深蹲双平行线法则与角度零误差**：
+   - `src/simulator.js`：
+     - 重构深蹲正向运动学为统一的 960×540 像素坐标推导体系：小腿长严格恒定为 $118.80\text{px}$、大腿长严格恒定为 $113.40\text{px}$、躯干长严格恒定为 $124.20\text{px}$、平举双臂长严格恒定为 $91.80\text{px}$；
+     - 动作最低点小腿前倾角严格收敛为 $20.00^\circ$，脊柱躯干前倾角严格收敛为 $22.00^\circ$，双线倾角绝对偏差严格锁定为 $2.00^\circ \le 3.00^\circ$，完全达到生物力学教材标准；
+     - 消除旧版在归一化空间中计算角度再乘以宽高比造成的投影形变，实测最低点像素膝角与分析器输出、模拟器报告完全一致，均为 $91.00^\circ$（原复审实测为 $77.80^\circ$ 偏差 $13.20^\circ$），实现全链条欧式几何零失真。
+   - `src/exercise.js`：
+     - `extractJointAngle` 针对深蹲关节引入 `toPixelPoint` 像素映射，使规则状态机角度与屏幕画布实际呈现的几何角度完全同一；
+     - `checkPostureFault` 统一以画布像素宽高比计算躯干前倾角，挺胸下蹲保持 $22.00^\circ \le 46^\circ$ 不误报，注入过度前倾故障时为 $52.00^\circ > 46^\circ$ 稳定触发 `trunk_lean`。
+
+2. **GEO-02 [P1/渲染约束] 彻底移除呼吸位移动画，恢复躯干欧式刚体长度恒定约束**：
+   - `src/draw.js`：
+     - 彻底清除 `drawDemoSkeleton` 中以正弦波动叠加在肩部的呼吸位移（`phase = time * BREATH_SPEED`），消除原复审指出的躯干长度在 121.32–126.58px 波动的问题；
+     - 实测整套 4700ms 周期内任意采样时刻，躯干欧氏长度严格锁定为 $124.20\text{px}$（误差 $< 0.1\text{px}$）。
+
+3. **MODE-01 [P1/模式隔离] 修正开合跳单臂不对称演示幅度，彻底消除误降幅为浅动作**：
+   - `src/simulator.js`：
+     - 修正 `isShallow` 判定逻辑，仅限制深蹲与弯举的 `faultIndex === 1` 为浅动作，明确排除了开合跳的错误索引 1（`arm_asymmetry`）；
+     - 开合跳 `faultIndex === 1` 演示时，左侧手臂保持 $140^\circ \ge 135^\circ$ 完整上举至头顶上方，右侧手臂受限于 $45\%$ 幅度（$63^\circ$），两侧展角绝对差值达 $77^\circ > 35^\circ$，既精准展现单侧臂展受限代偿，又绝不再错误降幅为全浅动作。
+
+4. **MODE-02 [P1/难度自适应] 标准姿势规范示范支持 3×3 难度矩阵，实现 100% 满额达标**：
+   - `src/simulator.js` & `src/app.js`：
+     - `simulatedAngle` 引入 `options.difficulty` 自适应协调机制：
+       - `advanced`（进阶）：深蹲峰值 $90^\circ \le 95^\circ$，弯举峰值 $45^\circ \le 50^\circ$，开合跳峰值 $150^\circ \ge 145^\circ$；
+       - `standard`（标准）：深蹲峰值 $91^\circ \le 110^\circ$，弯举峰值 $48^\circ \le 65^\circ$，开合跳峰值 $140^\circ \ge 130^\circ$；
+       - `beginner`（初学）：深蹲峰值 $115^\circ \le 122^\circ$，弯举峰值 $70^\circ \le 80^\circ$，开合跳峰值 $125^\circ \ge 115^\circ$；
+     - `renderFrame` 在演示循环中实时透传用户当前选择的 `state.difficulty`；
+     - 原复审指出的“进阶难度下弯举 0/3、开合跳 0/3 无法达标”问题彻底解决，实测 3 动作 × 3 难度全部 9 组组合均实现 100% 达标且 0 浅动作误报。
+
+5. **STATE-01 [P1/状态管理] 演示切换标签与错误选项时严格重置状态机中间态**：
+   - `src/exercise.js`：
+     - `ExerciseAnalyzer` 新增 `resetIncompleteRep()` 方法，彻底清理 `inRep`、`minAngle`、`peakAngle`、`depthProgress`、`lastSmooth`、开合跳腿部开合指标等未完成动作中间态；
+   - `src/app.js`：
+     - 用户在演示播放中点击「正确姿势」/「常见错误」Tab、或切换错误胶囊（Pill）时，立即调用 `resetIncompleteRep()` 并重置动画计时原点（`state.startPerf = performance.now()`），彻底阻断前一模式累积的运动峰值混入切换后的动作计数。
+
+6. **SEC-01 [P1/安全架构] 显式要求 HTTPS 证书缺失时严格故障封闭（Fail-Closed）**：
+   - `server.mjs`：
+     - 当配置 `process.env.HTTPS === 'true'` 但证书文件不存在或读取失败时，输出明确致命错误并直接执行 `process.exit(1)` 退出进程，彻底消除静默降级为明文 HTTP 的安全隐患。
+
+7. **交付包体积精简优化（引用本地 models，交付包不打包二进制模型）**：
+   - `scripts/package.py`：
+     - 打包时自动排除本地 `models/pose_landmarker_lite.task` 及 `models/wasm/` 二进制大文件，保留 `models/README.md` 与引用链接；
+     - 本地工作区保持完整模型用于快速离线运行，交付审查 ZIP 包体积从 8.08MB 骤降至约 183KB，大幅节省审查流转与网络分发带宽。
+
+### 测试矩阵与验收结果
+- `npm run check`：通过；
+- `npm test`：**41/41** 项全部通过（新增 GEO-01 像素几何骨骼长度、GEO-02 呼吸刚体不变、MODE-01 开合跳全幅不对称、MODE-02 3×3 难度矩阵 100% 达标、STATE-01 切换状态隔离断言）；
+- `python scripts/test_package_security.py`：**8/8** 项安全回归场景全部通过（新增 Scenario 8：HTTPS 缺失证书严格退出码 1 故障封闭断言）；
+- `node scripts/smoke.mjs`：通过；
+- `npm run benchmark`：**9/9** 场景全部通过，Overall MAE = **0.000**，浅动作识别精确率 100.0%，召回率 100.0%。
+
+
 
 ### 新增与优化特性
 - **动作生物力学与骨架动力学模型重构**：

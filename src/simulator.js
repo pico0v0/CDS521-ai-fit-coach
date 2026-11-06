@@ -10,20 +10,29 @@ export function simulatedAngle(elapsedMs, exerciseId, options = {}) {
   // or changing standing/peak angles consumed by the counting state machine.
   const easing = (u, skew) => u * u * (3 - 2 * u) + skew * 4 * u * u * (1 - u) * (1 - u);
 
-  const full = exerciseId === 'squat' ? 91 : (exerciseId === 'jumping_jack' ? 138 : 52);
+  const diff = options.difficulty || 'standard';
+  let full;
+  if (exerciseId === 'squat') {
+    full = diff === 'advanced' ? 90 : (diff === 'beginner' ? 115 : 91);
+  } else if (exerciseId === 'curl') {
+    full = diff === 'advanced' ? 45 : (diff === 'beginner' ? 70 : 48);
+  } else {
+    // jumping_jack
+    full = diff === 'advanced' ? 150 : (diff === 'beginner' ? 125 : 140);
+  }
   const partial = exerciseId === 'squat' ? 128 : (exerciseId === 'jumping_jack' ? 85 : 108);
 
   let peak;
   if (options.mode === 'standard') {
-    // Pure standard mode: every cycle reaches 100% full textbook target depth
+    // Pure standard mode: every cycle reaches 100% full textbook target depth across all difficulties (MODE-02)
     peak = full;
   } else if (options.mode === 'fault') {
-    // Fault mode: if faultIndex is 1 (or shallow), demonstrate shallow amplitude; otherwise full depth with form fault
-    const isShallow = options.faultIndex === 1 || options.faultId?.includes('shallow');
+    // Fault mode: only squat & curl fault 1 are shallow reps; jumping jack faults keep full peak depth (MODE-01)
+    const isShallow = options.faultId?.includes('shallow') || ((exerciseId === 'squat' || exerciseId === 'curl') && options.faultIndex === 1);
     peak = isShallow ? partial : full;
   } else {
     // Backward compatibility for existing unit tests & automated benchmarks
-    peak = cycle % 4 === 2 ? partial : full;
+    peak = cycle % 4 === 2 ? partial : (exerciseId === 'curl' ? 52 : (exerciseId === 'jumping_jack' ? 138 : 91));
   }
 
   const standing = exerciseId === 'jumping_jack' ? 25 : 174;
@@ -125,57 +134,48 @@ export function simulatePose(elapsedMs, exerciseId, options = {}) {
   } else if (exerciseId === 'squat') {
     const angleDeg = simulatedAngle(elapsedMs, exerciseId, options);
     const squatRatio = Math.max(0, Math.min(1, (174 - angleDeg) / (174 - 91)));
-    const R = 960 / 540; // 16:9 canvas aspect ratio for rigid, distortion-free pixel proportions
-    const L_shin = 0.22, L_thigh = 0.21, L_torso = 0.23, L_arm = 0.17;
-    const ankleX = 0.52, ankleY = 0.86;
+    const W = 960, H = 540;
+    const L_shin = 118.8, L_thigh = 113.4, L_torso = 124.2, L_arm = 91.8;
+    const ankleX = 0.52 * W, ankleY = 0.86 * H;
 
-    // 1. Shin moves forward-up from ankle (dorsiflexion, constant 119px pixel length)
-    const shinTiltRad = (3 + 16 * squatRatio) * Math.PI / 180;
-    const kneeX = ankleX - (L_shin * Math.sin(shinTiltRad)) / R;
+    // 1. Shin in pixels: 3° standing -> 20° at full squat depth (constant 118.80px Euclidean length)
+    const shinTiltRad = (3 + 17 * squatRatio) * Math.PI / 180;
+    const kneeX = ankleX - L_shin * Math.sin(shinTiltRad);
     const kneeY = ankleY - L_shin * Math.cos(shinTiltRad);
 
-    // 2. Thigh folds backward with aspect-ratio compensation (constant 113px pixel length, exact angleDeg)
-    const vKA_x = ankleX - kneeX;
-    const vKA_y = ankleY - kneeY;
-    const normAlpha = Math.atan2(vKA_y, vKA_x);
-    const targetHipAngle = normAlpha - angleDeg * Math.PI / 180;
-    const c_h = Math.cos(targetHipAngle);
-    const s_h = Math.sin(targetHipAngle);
-    const denom_h = Math.hypot(c_h * R, s_h);
-    const hipX = kneeX + (L_thigh * c_h) / denom_h;
-    const hipY = kneeY + (L_thigh * s_h) / denom_h;
+    // 2. Thigh folds backward: exact angleDeg knee joint angle in pixel space (constant 113.40px Euclidean length)
+    const phi_KA = Math.atan2(ankleY - kneeY, ankleX - kneeX);
+    const phi_KH = phi_KA - angleDeg * Math.PI / 180;
+    const hipX = kneeX + L_thigh * Math.cos(phi_KH);
+    const hipY = kneeY + L_thigh * Math.sin(phi_KH);
 
-    put(points, 23, hipX, hipY); put(points, 24, hipX + .020, hipY);
-    put(points, 25, kneeX, kneeY); put(points, 26, kneeX + .020, kneeY);
-    put(points, 27, ankleX, ankleY); put(points, 28, ankleX + .020, ankleY);
-    put(points, 29, ankleX + .025, ankleY + .01); put(points, 30, ankleX + .045, ankleY + .01); // heels back
-    put(points, 31, ankleX - .040, ankleY + .01); put(points, 32, ankleX - .020, ankleY + .01); // toes forward
+    // 3. Torso: double-parallel line law in pixel space (constant 124.20px Euclidean length)
+    // Standard form: 3° standing -> 22° at full squat depth (diff = 2.00° <= 3.00° parallel)
+    // On trunk lean fault: 52° forward tilt (> 46° fault threshold)
+    const torsoTiltRad = (injectFault ? 52 : (3 + 19 * squatRatio)) * Math.PI / 180;
+    const shoulderX = hipX - L_torso * Math.sin(torsoTiltRad);
+    const shoulderY = hipY - L_torso * Math.cos(torsoTiltRad);
 
-    // 3. Torso: parallel to shin (constant 124px pixel length, never elongates or collapses)
-    const normTorsoAngle = (injectFault ? 52 : (5 + 17 * squatRatio)) * Math.PI / 180;
-    const s_t = Math.sin(normTorsoAngle);
-    const c_t = Math.cos(normTorsoAngle);
-    const denom_t = Math.hypot(s_t * R, c_t);
-    const shoulderX = hipX - (L_torso * s_t) / denom_t;
-    const shoulderY = hipY - (L_torso * c_t) / denom_t;
-    put(points, 11, shoulderX, shoulderY); put(points, 12, shoulderX + .020, shoulderY);
-
-    // 4. Arms: raise forward smoothly to horizontal counterbalance (constant 92px pixel length)
+    // 4. Arms: raise forward horizontally to counterbalance (constant 91.80px Euclidean length)
     const armAngle = (25 + 65 * squatRatio) * Math.PI / 180;
-    const s_a = Math.sin(armAngle);
-    const c_a = Math.cos(armAngle);
-    const denom_a = Math.hypot(s_a * R, c_a);
-    const elbowX = shoulderX - (L_arm * 0.5 * s_a) / denom_a;
-    const elbowY = shoulderY + (L_arm * 0.5 * c_a) / denom_a;
-    const wristX = shoulderX - (L_arm * s_a) / denom_a;
-    const wristY = shoulderY + (L_arm * c_a) / denom_a;
-    put(points, 13, elbowX, elbowY); put(points, 14, elbowX + .020, elbowY);
-    put(points, 15, wristX, wristY); put(points, 16, wristX + .020, wristY);
+    const elbowX = shoulderX - L_arm * 0.5 * Math.sin(armAngle);
+    const elbowY = shoulderY + L_arm * 0.5 * Math.cos(armAngle);
+    const wristX = shoulderX - L_arm * Math.sin(armAngle);
+    const wristY = shoulderY + L_arm * Math.cos(armAngle);
 
-    // 5. Head: natural neck length, aligned on spine
-    const headX = shoulderX - (0.04 * s_t) / R;
-    const headY = shoulderY - (0.07 * c_t) - 0.02;
-    put(points, 0, headX, headY);
+    // 5. Head: natural neck alignment
+    const headX = shoulderX - 40 * Math.sin(torsoTiltRad);
+    const headY = shoulderY - 40 * Math.cos(torsoTiltRad) - 20;
+
+    put(points, 23, hipX / W, hipY / H); put(points, 24, (hipX + 19.2) / W, hipY / H);
+    put(points, 25, kneeX / W, kneeY / H); put(points, 26, (kneeX + 19.2) / W, kneeY / H);
+    put(points, 27, ankleX / W, ankleY / H); put(points, 28, (ankleX + 19.2) / W, ankleY / H);
+    put(points, 29, (ankleX + 24) / W, (ankleY + 5.4) / H); put(points, 30, (ankleX + 43.2) / W, (ankleY + 5.4) / H);
+    put(points, 31, (ankleX - 38.4) / W, (ankleY + 5.4) / H); put(points, 32, (ankleX - 19.2) / W, (ankleY + 5.4) / H);
+    put(points, 11, shoulderX / W, shoulderY / H); put(points, 12, (shoulderX + 19.2) / W, shoulderY / H);
+    put(points, 13, elbowX / W, elbowY / H); put(points, 14, (elbowX + 19.2) / W, elbowY / H);
+    put(points, 15, wristX / W, wristY / H); put(points, 16, (wristX + 19.2) / W, wristY / H);
+    put(points, 0, headX / W, headY / H);
   } else {
     const angleDeg = simulatedAngle(elapsedMs, exerciseId, options);
     const shoulderX = 0.52, shoulderY = 0.28;

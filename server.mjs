@@ -185,9 +185,11 @@ const certPath = process.env.TLS_CERT_PATH
   : resolve(root, '..', 'ai-fit-coach-tls', 'cert.pem');
 
 let server;
-const isHttps = Boolean(useHttps && existsSync(keyPath) && existsSync(certPath));
-
-if (isHttps) {
+if (useHttps) {
+  if (!existsSync(keyPath) || !existsSync(certPath)) {
+    console.error(`FATAL: HTTPS is enabled (HTTPS=true), but TLS credentials are missing:\n  Key:  ${keyPath}\n  Cert: ${certPath}\nServer cannot start insecurely when HTTPS is explicitly required.`);
+    process.exit(1);
+  }
   server = createHttpsServer({
     key: readFileSync(keyPath),
     cert: readFileSync(certPath)
@@ -197,7 +199,7 @@ if (isHttps) {
 }
 
 server.listen(port, host, () => {
-  const protocol = isHttps ? 'https' : 'http';
+  const protocol = useHttps ? 'https' : 'http';
   console.log(`AI Fit Coach: ${protocol}://${host === '0.0.0.0' ? 'localhost' : host}:${port}`);
   if (host === '0.0.0.0') {
     console.log(`  (局域网手机访问请确保使用安全上下文或本地视频评测模式)`);

@@ -443,6 +443,7 @@ function renderFrame(now) {
     const landmarks = simulatePose(elapsed, state.exercise, {
       mode: state.demoType || 'standard',
       faultIndex: state.selectedFaultIndex || 0,
+      difficulty: state.difficulty || 'standard',
       simulateFault: true
     });
     const snapshot = onResult(landmarks, now);
@@ -762,6 +763,9 @@ document.addEventListener('click', async event => {
     case 'start-demo-standard': {
       if (state.mode === 'demo') {
         state.demoType = 'standard';
+        state.analyzer?.resetIncompleteRep();
+        state.startPerf = performance.now();
+        state.pauseDuration = 0;
         updateDemoGuideUI();
         refreshModeUI();
         inform('已切换为：正确姿势规范示范（100% 达标深度）。');
@@ -776,6 +780,9 @@ document.addEventListener('click', async event => {
     case 'start-demo-fault': {
       if (state.mode === 'demo') {
         state.demoType = 'fault';
+        state.analyzer?.resetIncompleteRep();
+        state.startPerf = performance.now();
+        state.pauseDuration = 0;
         updateDemoGuideUI();
         refreshModeUI();
         const guide = EXERCISE_GUIDES[state.exercise] || EXERCISE_GUIDES.squat;
@@ -792,6 +799,11 @@ document.addEventListener('click', async event => {
     case 'switch-demo-tab': {
       const tab = event.target.closest('[data-tab]')?.dataset.tab || 'standard';
       state.demoType = tab;
+      if (state.mode === 'demo') {
+        state.analyzer?.resetIncompleteRep();
+        state.startPerf = performance.now();
+        state.pauseDuration = 0;
+      }
       updateDemoGuideUI();
       refreshModeUI();
       if (state.mode === 'demo') {
@@ -811,6 +823,11 @@ document.addEventListener('click', async event => {
       const idx = parseInt(event.target.closest('[data-fault-index]')?.dataset.faultIndex, 10) || 0;
       state.selectedFaultIndex = idx;
       state.demoType = 'fault';
+      if (state.mode === 'demo') {
+        state.analyzer?.resetIncompleteRep();
+        state.startPerf = performance.now();
+        state.pauseDuration = 0;
+      }
       updateDemoGuideUI();
       refreshModeUI();
       const guide = EXERCISE_GUIDES[state.exercise] || EXERCISE_GUIDES.squat;
