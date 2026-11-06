@@ -113,7 +113,12 @@ function drawDemoSkeleton(ctx, landmarks, exercise, options) {
   const glowScale = Math.max(1, Math.min(MAX_PIXEL_SCALE, backingScale));
 
   // The floor gives the skeleton a grounded, full-body visual reference.
-  const footY = Math.max(...[27,28].filter(has).map(i => pts[i].y * height), height * 0.87) + 13;
+  // A jumping-jack athlete lifts off the floor. The floor/shadow must stay
+  // fixed as the body moves; following the ankles made the demo look as if
+  // the platform jumped with the figure.
+  const footY = exercise === 'jumping_jack'
+    ? height * (512 / 540)
+    : Math.max(...[27,28].filter(has).map(i => pts[i].y * height), height * 0.87) + 13;
   ctx.save();
   const groundPulse = 0.5 + 0.5 * Math.sin(time * BREATH_SPEED);
   ctx.lineWidth = 1;

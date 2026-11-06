@@ -77,6 +77,7 @@ try {
   for (const [path, mime] of [
     ['/', 'text/html'],
     ['/index.html', 'text/html'],
+    ['/preview.html', 'text/html'],
     ['/src/app.js', 'text/javascript'],
     ['/src/exercise.js', 'text/javascript'],
     ['/src/styles.css', 'text/css']

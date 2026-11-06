@@ -17,6 +17,7 @@ const useHttps = process.env.HTTPS === 'true';
 const srcDir = resolve(root, 'src');
 const modelsDir = resolve(root, 'models');
 const indexFile = resolve(root, 'index.html');
+const previewFile = resolve(root, 'preview.html');
 const faviconFile = resolve(root, 'favicon.ico');
 
 const contentTypes = {
@@ -60,6 +61,8 @@ async function handleRequest(req, res) {
 
     if (pathname === '/' || pathname === '/index.html') {
       expectedExactFile = indexFile;
+    } else if (pathname === '/preview.html') {
+      expectedExactFile = previewFile;
     } else if (pathname === '/favicon.ico') {
       expectedExactFile = faviconFile;
     } else if (pathname.startsWith('/src/')) {

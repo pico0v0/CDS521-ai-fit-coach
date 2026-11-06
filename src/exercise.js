@@ -93,9 +93,9 @@ export const EXERCISE_GUIDES = Object.freeze({
   jumping_jack: {
     standard: {
       title: '开合跳 · 标准动作要领示范',
-      summary: '双臂高举击掌、双腿同步开合、前掌轻盈缓冲。',
+      summary: '双臂自然举过头顶呈 V 形、双腿同拍展开、起跳与落地屈膝缓冲。',
       cues: [
-        { label: '四肢时序同步', desc: '双臂上举至头顶上方（≥ 130°）与双脚横向跳开（≥ 1.65× 髋距）完全同拍完成。' },
+        { label: '四肢时序同步', desc: '双臂向头顶上方画弧举起（≥ 130°），同时双脚跳开（≥ 1.65× 髋距），不需强迫双手击掌。' },
         { label: '落地屈膝减震', desc: '前脚掌轻盈点地，膝关节自然微屈以吸收地面反冲力，保护踝膝关节。' },
         { label: '标准闭环归位', desc: '下落时双臂回落贴身、双腿并拢，每轮均从双脚并拢站立位开始。' }
       ]
@@ -193,19 +193,19 @@ export function extractJointAngle(landmarks, exerciseId, options = 0.6) {
     const rightValid = rightPts.every(p => p && Number.isFinite(p.x) && Number.isFinite(p.y) && (p.visibility ?? 1) >= visibilityThreshold);
 
     if (leftValid && rightValid) {
-      const leftAngle = angleDegrees(...leftPts);
-      const rightAngle = angleDegrees(...rightPts);
+      const leftAngle = angleDegrees(...leftPts.map(p => toPixelPoint(p)));
+      const rightAngle = angleDegrees(...rightPts.map(p => toPixelPoint(p)));
       if (leftAngle === null || rightAngle === null || leftAngle < 5 || rightAngle < 5) return null;
       const avg = Math.round((leftAngle + rightAngle) / 2);
       const score = Math.min(...leftPts.concat(rightPts).map(p => p.visibility ?? 1));
       return { angle: avg, confidence: score, side: '双侧', ids: [11, 12, 13, 14, 15, 16, 23, 24] };
     } else if (leftValid) {
-      const angle = angleDegrees(...leftPts);
+      const angle = angleDegrees(...leftPts.map(p => toPixelPoint(p)));
       if (angle === null || angle < 5) return null;
       const score = Math.min(...leftPts.map(p => p.visibility ?? 1));
       return { angle: Math.round(angle), confidence: score, side: '左侧', ids: [11, 13, 15, 23] };
     } else if (rightValid) {
-      const angle = angleDegrees(...rightPts);
+      const angle = angleDegrees(...rightPts.map(p => toPixelPoint(p)));
       if (angle === null || angle < 5) return null;
       const score = Math.min(...rightPts.map(p => p.visibility ?? 1));
       return { angle: Math.round(angle), confidence: score, side: '右侧', ids: [12, 14, 16, 24] };
@@ -287,12 +287,32 @@ export function checkPostureFault(landmarks, exerciseId, side = '左侧', option
     if ([leftShoulder, rightShoulder, leftWrist, rightWrist, leftHip, rightHip]
       .some(p => !p || (p.visibility ?? 1) < 0.45)) return null;
 
-    const leftArmAngle = angleDegrees(leftHip, leftShoulder, leftWrist);
-    const rightArmAngle = angleDegrees(rightHip, rightShoulder, rightWrist);
+    const leftArmAngle = angleDegrees(...[leftHip, leftShoulder, leftWrist].map(p => toPixelPoint(p)));
+    const rightArmAngle = angleDegrees(...[rightHip, rightShoulder, rightWrist].map(p => toPixelPoint(p)));
     if (leftArmAngle !== null && rightArmAngle !== null) {
       const asymmetry = Math.abs(leftArmAngle - rightArmAngle);
       if (asymmetry > 35) {
         return { code: 'arm_asymmetry', message: '双臂尽量对称舒展，避免单侧动作滞后', value: Math.round(asymmetry) };
+      }
+      // A single frame cannot distinguish delayed legs from legs that never
+      // moved. History is required to declare the static-legs fault, and it
+      // must be supplied by the analyzing state machine (not simulator tags).
+      if (options.completedCycle && options.hadArmAsymmetry) {
+        return { code: 'arm_asymmetry', message: '本轮左右手臂展开不对称', value: 1 };
+      }
+      if (options.completedCycle && Number.isFinite(options.peakLegSpread) &&
+          Number.isFinite(options.peakAnkleDist) && Number.isFinite(options.minAnkleDist)) {
+        if (options.peakLegSpread < 1.45 &&
+            options.peakAnkleDist - options.minAnkleDist < 0.035) {
+          return { code: 'static_legs', message: '双脚未充分跳开，请同步展开双腿', value: Math.round(options.peakLegSpread * 100) / 100 };
+        }
+        if (!options.armPeakLegSynchronized) {
+          return { code: 'asymmetry_or_desync', message: '手臂与双腿开合不同步，请保持同拍', value: Math.round(options.peakLegSpread * 100) / 100 };
+        }
+      }
+      const legSpread = getLegSpreadRatio(landmarks);
+      if (Math.min(leftArmAngle, rightArmAngle) > 132 && legSpread !== null && legSpread < 1.38) {
+        return { code: 'asymmetry_or_desync', message: '手臂已经举高，但双腿尚未同步展开', value: Math.round(legSpread * 100) / 100 };
       }
     }
   }
@@ -328,6 +348,7 @@ export class ExerciseAnalyzer {
     this.activeSide = null;
     this.depthProgress = 0;
     this.faultCounts = { trunk_lean: 0, arm_swing: 0, arm_asymmetry: 0 };
+    this.jackArmAsymmetry = false;
     this.lastFaultTimes = {};
     this.currentFault = null;
     this.minLegSpread = Infinity;
@@ -470,6 +491,7 @@ export class ExerciseAnalyzer {
       this.inRep = true;
       this.ready = false;
       this.repStartedAt = timestamp;
+      this.jackArmAsymmetry = false;
       this.minAngle = measured;
       this.peakAngle = measured;
       this.phase = '动作进行中';
@@ -510,6 +532,9 @@ export class ExerciseAnalyzer {
       if (landmarks && shouldCheckFault) {
         const fault = checkPostureFault(landmarks, this.exercise.id, this.activeSide || side);
         if (fault) {
+          if (this.exercise.id === 'jumping_jack' && fault.code === 'arm_asymmetry') {
+            this.jackArmAsymmetry = true;
+          }
           const lastTime = this.lastFaultTimes[fault.code];
           if (lastTime === undefined || timestamp - lastTime >= 3000) {
             this.lastFaultTimes[fault.code] = timestamp;
@@ -549,7 +574,18 @@ export class ExerciseAnalyzer {
           }
         }
 
-        const complete = armComplete && legComplete;
+        let cycleFault = null;
+        if (this.exercise.id === 'jumping_jack' && landmarks) {
+          cycleFault = checkPostureFault(landmarks, this.exercise.id, this.activeSide || side, {
+            completedCycle: true,
+            peakLegSpread: this.peakLegSpread,
+            minAnkleDist: this.minAnkleDist,
+            peakAnkleDist: this.peakAnkleDist,
+            armPeakLegSynchronized: this.armPeakLegSynchronized,
+            hadArmAsymmetry: this.jackArmAsymmetry,
+          });
+        }
+        const complete = armComplete && legComplete && !cycleFault;
         if (duration >= MIN_REP_MS && duration >= MIN_TRACKING_INTERVAL_MS) {
           if (complete) {
             this.count++;
@@ -558,8 +594,8 @@ export class ExerciseAnalyzer {
             this.lastEvent = { type: 'success', message, isGoalAchieved, timestamp };
           } else {
             this.partialCount++;
-            const message = legFaultReason || (armComplete ? '动作幅度未达标（不计数）' : '本次动作幅度未达到演示阈值（不计数）');
-            this.lastEvent = { type: 'warning', message, timestamp };
+            const message = cycleFault?.message || legFaultReason || (armComplete ? '动作幅度未达标（不计数）' : '本次动作幅度未达到演示阈值（不计数）');
+            this.lastEvent = { type: 'warning', message, timestamp, ...(cycleFault ? { code: cycleFault.code } : {}) };
           }
         }
         this.inRep = false;

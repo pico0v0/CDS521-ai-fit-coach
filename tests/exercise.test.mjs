@@ -263,10 +263,18 @@ test('R-005 regression: jumping jacks require bidirectional leg coordination acr
         for (const i of [25, 26, 27, 28, 29, 30]) p[i] = { ...(phase >= 2100 && phase <= 2200 ? spread[i] : standing[i]) };
       }
       if (mode === 'beginner_118') {
-        const theta = Math.min(simulatedAngle(t, 'jumping_jack'), 118) * Math.PI / 180;
-        for (const [shoulder, elbow, wrist, dir] of [[11, 13, 15, -1], [12, 14, 16, 1]]) {
-          p[elbow] = { ...p[elbow], x: p[shoulder].x + dir * 0.12 * Math.sin(theta), y: p[shoulder].y + 0.12 * Math.cos(theta) };
-          p[wrist] = { ...p[wrist], x: p[shoulder].x + dir * 0.24 * Math.sin(theta), y: p[shoulder].y + 0.24 * Math.cos(theta) };
+        // Construct a deliberately limited 118° arm sweep in *pixel* space;
+        // normalised x/y sin/cos directly would be anisotropically distorted.
+        const target = Math.min(simulatedAngle(t, 'jumping_jack'), 118) * Math.PI / 180;
+        for (const [hip, shoulder, elbow, wrist, side] of [[23,11,13,15,-1],[24,12,14,16,1]]) {
+          const off = Math.atan2(Math.abs(p[hip].x-p[shoulder].x)*960,
+            (p[hip].y-p[shoulder].y)*540);
+          const theta = target - off;
+          const shoulderPx = {x:p[shoulder].x*960, y:p[shoulder].y*540};
+          const reach=150;
+          const wristPx = {x:shoulderPx.x+side*reach*Math.sin(theta), y:shoulderPx.y+reach*Math.cos(theta)};
+          p[wrist] = {...p[wrist],x:wristPx.x/960,y:wristPx.y/540};
+          p[elbow] = {...p[elbow],x:(shoulderPx.x+wristPx.x)/2/960,y:(shoulderPx.y+wristPx.y)/2/540};
         }
       }
       const j = extractJointAngle(p, 'jumping_jack');

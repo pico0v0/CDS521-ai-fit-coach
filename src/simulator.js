@@ -18,7 +18,7 @@ export function simulatedAngle(elapsedMs, exerciseId, options = {}) {
     full = diff === 'advanced' ? 45 : (diff === 'beginner' ? 70 : 48);
   } else {
     // jumping_jack
-    full = diff === 'advanced' ? 150 : (diff === 'beginner' ? 125 : 140);
+    full = diff === 'advanced' ? 173 : (diff === 'beginner' ? 160 : 168);
   }
   const partial = exerciseId === 'squat' ? 128 : (exerciseId === 'jumping_jack' ? 85 : 108);
 
@@ -32,15 +32,15 @@ export function simulatedAngle(elapsedMs, exerciseId, options = {}) {
     peak = isShallow ? partial : full;
   } else {
     // Backward compatibility for existing unit tests & automated benchmarks
-    peak = cycle % 4 === 2 ? partial : (exerciseId === 'curl' ? 52 : (exerciseId === 'jumping_jack' ? 138 : 91));
+    peak = cycle % 4 === 2 ? partial : (exerciseId === 'curl' ? 52 : (exerciseId === 'jumping_jack' ? 168 : 91));
   }
 
   const standing = exerciseId === 'jumping_jack' ? 25 : 174;
   if (exerciseId === 'jumping_jack') {
     if (t < .18) return standing;
-    if (t < .46) return standing + (peak - standing) * easing((t - .18) / .28, -0.28);
+    if (t < .46) return standing + (peak - standing) * smooth5((t - .18) / .28);
     if (t < .57) return peak;
-    if (t < .86) return peak - (peak - standing) * easing((t - .57) / .29, 0.28);
+    if (t < .86) return peak - (peak - standing) * smooth5((t - .57) / .29);
     return standing;
   }
 
@@ -65,13 +65,135 @@ function faultEnvelope(t, onset, apexIn, apexOut, recovery) {
 
 function activeFault(exerciseId, options, cycle) {
   if (options.mode === 'standard') return null;
-  if (options.mode !== 'fault') return options.simulateFault && cycle % 4 === 1 ? 0 : null;
+  if (options.mode !== 'fault') return options.simulateFault && cycle % 4 === 1 ? (exerciseId === 'jumping_jack' ? 1 : 0) : null;
   const known = {
     squat: { trunk_lean: 0, shallow_squat: 1 },
     curl: { arm_swing: 0, shallow_curl: 1 },
     jumping_jack: { asymmetry_or_desync: 0, arm_asymmetry: 1, static_legs: 2 },
   };
   return options.faultIndex ?? known[exerciseId]?.[options.faultId] ?? 0;
+}
+
+// Every 2-D segment is solved using *real 960x540 projection pixels*, then
+// normalized once when constructing the MediaPipe-style 33 landmarks.
+const JACK = Object.freeze({
+  width: 960, height: 540,
+  centerX: 480,
+  hipHalfWidth: 45, shoulderHalfWidth: 57,
+  hipRestY: 285, shoulderAboveHip: 113, ankleRestY: 494,
+  thigh: 101, shin: 110, upperArm: 76, forearm: 76,
+  foot: 25, heel: 13,
+  ankleHalfWidthClosed: 44, ankleAdditionalSpread: 91,
+});
+
+// A quintic rise and fall: no sudden positional / velocity / acceleration
+// changes at either transition. All phases repeat identically every 4700 ms.
+function jackPulse(t, start, riseEnd, fallStart, end) {
+  return smooth5((t - start) / (riseEnd - start)) *
+    (1 - smooth5((t - fallStart) / (end - fallStart)));
+}
+
+// 2-circle intersection: |root-joint|=L1 and |joint-target|=L2 *exactly*.
+// bendSign selects the outward/anatomical knee or elbow branch, never stretches.
+function rigidTwoLink(root, target, L1, L2, bendSign) {
+  const vx = target.x - root.x, vy = target.y - root.y;
+  const d = Math.hypot(vx, vy);
+  // The simulator's dimensions guarantee a reachable target; explicit guard
+  // catches accidental changes to envelope / amplitude in future edits.
+  if (d < Math.abs(L1 - L2) + 1e-8 || d > L1 + L2 + 1e-8) {
+    throw new RangeError(`Unreachable rigid limb target: distance ${d.toFixed(3)}, links ${L1}+${L2}`);
+  }
+  const ux = vx / d, uy = vy / d;
+  const along = (L1 * L1 - L2 * L2 + d * d) / (2 * d);
+  const perpendicular = Math.sqrt(Math.max(0, L1 * L1 - along * along));
+  return {
+    x: root.x + along * ux - bendSign * perpendicular * uy,
+    y: root.y + along * uy + bendSign * perpendicular * ux,
+  };
+}
+
+function simulateJumpingJack(elapsedMs, options, activeFaultIndex, t, angleDeg) {
+  const p = blank();
+  const C = JACK;
+  const isDesync = activeFaultIndex === 0;
+  const isAsym = activeFaultIndex === 1;
+  const isStatic = activeFaultIndex === 2;
+
+  // Normal arms and legs travel together. In desync mode, the legs take off
+  // after the arms are already high, then expand as the arms come down.
+  const armProgress = jackPulse(t, 0.18, 0.46, 0.57, 0.86);
+  const legProgress = isStatic ? 0 : isDesync
+    ? jackPulse(t, 0.59, 0.77, 0.80, 0.97)
+    : jackPulse(t, 0.18, 0.46, 0.54, 0.82);
+  const lift = isStatic ? 0 : isDesync
+    ? jackPulse(t, 0.60, 0.76, 0.80, 0.94)
+    : jackPulse(t, 0.22, 0.46, 0.52, 0.79);
+  // Gentle anticipation squat and landing absorption. In static-legs mode
+  // this reads as an in-place weight shift with genuinely planted feet.
+  const preparation = jackPulse(t, 0.11, 0.21, 0.25, 0.34);
+  const landing = isStatic ? 0 : isDesync
+    ? jackPulse(t, 0.89, 0.95, 0.96, 0.99)
+    : jackPulse(t, 0.76, 0.83, 0.85, 0.90);
+  const hipY = C.hipRestY + 6 * preparation + 5 * landing - 11 * lift;
+  const shoulderY = hipY - C.shoulderAboveHip;
+  const ankleY = C.ankleRestY - 31 * lift;
+  const hipLeft = { x: C.centerX - C.hipHalfWidth, y: hipY };
+  const hipRight = { x: C.centerX + C.hipHalfWidth, y: hipY };
+  const shoulderLeft = { x: C.centerX - C.shoulderHalfWidth, y: shoulderY };
+  const shoulderRight = { x: C.centerX + C.shoulderHalfWidth, y: shoulderY };
+  const ankleLeft = { x: C.centerX - C.ankleHalfWidthClosed - C.ankleAdditionalSpread * legProgress, y: ankleY };
+  const ankleRight = { x: C.centerX + C.ankleHalfWidthClosed + C.ankleAdditionalSpread * legProgress, y: ankleY };
+  const kneeLeft = rigidTwoLink(hipLeft, ankleLeft, C.thigh, C.shin, +1);
+  const kneeRight = rigidTwoLink(hipRight, ankleRight, C.thigh, C.shin, -1);
+
+  // Only right arm lags in fault #1. Attenuation is a continuous envelope,
+  // never a frame-gated jump or a replacement of the shoulder joint.
+  const lag = isAsym ? faultEnvelope(t, 0.28, 0.45, 0.58, 0.80) : 0;
+  const leftDeg = angleDeg;
+  const rightDeg = 25 + (angleDeg - 25) * (1 - 0.52 * lag);
+  // A modest elbow bend becomes visible when the arms rise. Wrist direction
+  // is the exact shoulder-hip measurement angle in PIXEL space; both bones
+  // retain constant lengths as the elbow is solved by analytic two-link IK.
+  const putArm = (shoulder, deg, side, si, ei, wi) => {
+    // The anatomical torso has 12px of lateral shoulder-to-hip offset.
+    // Subtract this from the world-space sweep so that the *actual* pixel
+    // shoulder angle against the shoulder-to-hip vector equals `deg`.
+    const torsoOffset = Math.atan2(C.shoulderHalfWidth - C.hipHalfWidth, C.shoulderAboveHip);
+    const theta = deg * Math.PI / 180 - torsoOffset;
+    const bend = (170 - 6 * armProgress) * Math.PI / 180;
+    const reach = Math.sqrt(C.upperArm ** 2 + C.forearm ** 2 -
+      2 * C.upperArm * C.forearm * Math.cos(bend));
+    const wrist = {
+      x: shoulder.x + side * reach * Math.sin(theta),
+      y: shoulder.y + reach * Math.cos(theta),
+    };
+    const elbow = rigidTwoLink(shoulder, wrist, C.upperArm, C.forearm, side);
+    for (const [i, a] of [[si, shoulder], [ei, elbow], [wi, wrist]]) {
+      put(p, i, a.x / C.width, a.y / C.height);
+    }
+  };
+  putArm(shoulderLeft, leftDeg, -1, 11, 13, 15);
+  putArm(shoulderRight, rightDeg, +1, 12, 14, 16);
+
+  for (const [i, a] of [[23, hipLeft], [24, hipRight],
+    [25, kneeLeft], [26, kneeRight], [27, ankleLeft], [28, ankleRight]]) {
+    put(p, i, a.x / C.width, a.y / C.height);
+  }
+  // Local feet rotate gently outward through the kick, with 25px toes and
+  // 13px heels kept rigid to each ankle. Never stretch a foot to the floor.
+  const toeRad = (12 + 10 * legProgress) * Math.PI / 180;
+  for (const [ankle, toeId, heelId, side] of [
+    [ankleLeft, 29, 31, -1], [ankleRight, 30, 32, +1],
+  ]) {
+    const toe = { x: ankle.x + side * C.foot * Math.cos(toeRad), y: ankle.y + C.foot * Math.sin(toeRad) };
+    const heel = { x: ankle.x - side * C.heel * Math.cos(toeRad), y: ankle.y + C.heel * Math.sin(toeRad) };
+    put(p, toeId, toe.x / C.width, toe.y / C.height);
+    put(p, heelId, heel.x / C.width, heel.y / C.height);
+  }
+  // The head and the two shoulder-to-hip segments translate together as one
+  // rigid torso; its 59px neck offset is constant through the jump.
+  put(p, 0, C.centerX / C.width, (shoulderY - 59) / C.height);
+  return p;
 }
 
 export function simulatePose(elapsedMs, exerciseId, options = {}) {
@@ -86,58 +208,12 @@ export function simulatePose(elapsedMs, exerciseId, options = {}) {
     ? faultEnvelope(t, 0.29, 0.46, 0.56, 0.73) : 0;
   const curlSwing = activeFaultIndex === 0 && exerciseId === 'curl'
     ? faultEnvelope(t, 0.30, 0.48, 0.54, 0.72) : 0;
-  // Unedited jumping-jack fault semantics.
-  const injectFault = activeFaultIndex !== null && t >= 0.38 && t <= 0.65;
-
   const points = blank();
   const angleDeg = simulatedAngle(elapsedMs, exerciseId, options);
   const angle = angleDeg * Math.PI / 180;
 
   if (exerciseId === 'jumping_jack') {
-    const leftTheta = angle;
-    const rightAngleDeg = injectFault ? angleDeg * 0.45 : angleDeg;
-    const rightTheta = rightAngleDeg * Math.PI / 180;
-
-    const shoulderY = 0.32;
-    const leftShoulderX = 0.44;
-    const rightShoulderX = 0.56;
-    put(points, 11, leftShoulderX, shoulderY);
-    put(points, 12, rightShoulderX, shoulderY);
-
-    const hipY = 0.58;
-    const leftHipX = 0.44;
-    const rightHipX = 0.56;
-    put(points, 23, leftHipX, hipY);
-    put(points, 24, rightHipX, hipY);
-
-    const armLen = 0.24;
-    const elbowLen = 0.12;
-
-    put(points, 13, leftShoulderX - elbowLen * Math.sin(leftTheta), shoulderY + elbowLen * Math.cos(leftTheta));
-    put(points, 15, leftShoulderX - armLen * Math.sin(leftTheta), shoulderY + armLen * Math.cos(leftTheta));
-
-    put(points, 14, rightShoulderX + elbowLen * Math.sin(rightTheta), shoulderY + elbowLen * Math.cos(rightTheta));
-    put(points, 16, rightShoulderX + armLen * Math.sin(rightTheta), shoulderY + armLen * Math.cos(rightTheta));
-
-    let legSpread = Math.max(0, (angleDeg - 25) / 113) * 0.10;
-    if (options.mode === 'fault') {
-      if (activeFaultIndex === 0) {
-        // Desync: arms are overhead (t in 0.40..0.65), but legs close early to simulate desynchronization
-        if (t >= 0.42 && t <= 0.62) legSpread = 0.01;
-      } else if (activeFaultIndex === 2) {
-        // Static legs: feet stay completely still
-        legSpread = 0;
-      }
-    }
-    const kneeY = 0.76;
-    const ankleY = 0.92;
-    put(points, 25, leftHipX - legSpread * 0.5, kneeY);
-    put(points, 26, rightHipX + legSpread * 0.5, kneeY);
-    put(points, 27, leftHipX - legSpread, ankleY);
-    put(points, 28, rightHipX + legSpread, ankleY);
-    put(points, 29, leftHipX - legSpread - 0.02, ankleY + 0.01);
-    put(points, 30, rightHipX + legSpread + 0.02, ankleY + 0.01);
-    put(points, 0, (leftShoulderX + rightShoulderX) / 2, shoulderY - 0.12);
+    return simulateJumpingJack(elapsedMs, options, activeFaultIndex, t, angleDeg);
   } else if (exerciseId === 'squat') {
     const squatRatio = Math.max(0, Math.min(1, (174 - angleDeg) / (174 - 91)));
     const W = 960, H = 540;
