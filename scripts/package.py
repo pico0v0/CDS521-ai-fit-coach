@@ -64,6 +64,9 @@ def scan_for_secrets(base_path):
             continue
         if len(rel.parts) > 1 and rel.parts[0] == 'evidence':
             continue
+        # Exclude downloaded binary models and WASM binaries from release zip; keep models/README.md
+        if len(rel.parts) > 1 and rel.parts[0] == 'models' and path.name != 'README.md':
+            continue
 
         if path.suffix.lower() in SECRET_SUFFIXES:
             print(f'SECURITY VIOLATION: Private key/cert file detected: {rel}', file=sys.stderr)
@@ -133,6 +136,9 @@ def main():
         if path.name.startswith('.env') or path.suffix in ('.log', '.pyc', '.zip'):
             continue
         if len(rel.parts) > 1 and rel.parts[0] == 'evidence':
+            continue
+        # Exclude downloaded binary models and WASM binaries from release zip; keep models/README.md
+        if len(rel.parts) > 1 and rel.parts[0] == 'models' and path.name != 'README.md':
             continue
 
         raw = path.read_bytes()
