@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { angleDegrees, extractJointAngle, ExerciseAnalyzer, checkPostureFault } from '../src/exercise.js';
+import { angleDegrees, extractJointAngle, ExerciseAnalyzer, checkPostureFault, EXERCISE_GUIDES } from '../src/exercise.js';
 import { simulatedAngle, simulatePose } from '../src/simulator.js';
 
 test('2D angle geometry, invalid and degenerate landmarks', () => {
@@ -382,4 +382,58 @@ test('R-009 regression: 1-to-1 event-level shallow rep matching accurately detec
   assert.equal(injectedRes.fn, 0);
   assert.equal(injectedRes.recall, 1.0);
   assert.equal(injectedRes.precision, 0.5, 'Precision drops to 50% due to 2 False Positives');
+});
+
+test('EXERCISE_GUIDES schema: all exercises have standard cues and detailed faults breakdown', () => {
+  for (const id of ['squat', 'curl', 'jumping_jack']) {
+    const guide = EXERCISE_GUIDES[id];
+    assert.ok(guide, `Guide exists for ${id}`);
+    assert.ok(guide.standard.title && guide.standard.summary, `Standard metadata exists for ${id}`);
+    assert.ok(Array.isArray(guide.standard.cues) && guide.standard.cues.length >= 3, `At least 3 cues for ${id}`);
+    assert.ok(Array.isArray(guide.faults) && guide.faults.length >= 2, `At least 2 common faults for ${id}`);
+
+    for (const f of guide.faults) {
+      assert.ok(f.id, 'Fault has id');
+      assert.ok(f.name, 'Fault has name');
+      assert.ok(f.where && f.where.length > 10, 'Fault has detailed "where" (错在哪)');
+      assert.ok(f.why && f.why.length > 10, 'Fault has detailed "why" (为什么错)');
+      assert.ok(f.correction && f.correction.length > 10, 'Fault has detailed "correction" (如何纠正)');
+      assert.ok(f.aiRule && f.aiRule.length > 10, 'Fault has detailed "aiRule" (AI 判定规则)');
+    }
+  }
+});
+
+test('simulatePose in standard mode produces 100% full reps without shallow reps', () => {
+  for (const id of ['squat', 'curl', 'jumping_jack']) {
+    const analyzer = new ExerciseAnalyzer(id);
+    for (let t = 0; t < 4700 * 4; t += 100) {
+      const pose = simulatePose(t, id, { mode: 'standard' });
+      const joint = extractJointAngle(pose, id);
+      analyzer.update({ angle: joint?.angle, visible: !!joint, timestamp: t + 1, landmarks: pose });
+    }
+    assert.equal(analyzer.count, 4, `${id} in standard mode counts all 4 reps`);
+    assert.equal(analyzer.partialCount, 0, `${id} in standard mode has 0 shallow reps`);
+  }
+});
+
+test('simulatePose in fault mode triggers designated biomechanical fault', () => {
+  // Squat fault 0: trunk lean triggers checkPostureFault
+  const squatLeanPose = simulatePose(2350, 'squat', { mode: 'fault', faultIndex: 0 });
+  const leanFault = checkPostureFault(squatLeanPose, 'squat', '左侧');
+  assert.equal(leanFault?.code, 'trunk_lean', 'Squat fault 0 triggers trunk_lean');
+
+  // Squat fault 1: shallow squat flags partial reps
+  const squatAnalyzer = new ExerciseAnalyzer('squat');
+  for (let t = 0; t < 4700 * 2; t += 100) {
+    const pose = simulatePose(t, 'squat', { mode: 'fault', faultIndex: 1 });
+    const joint = extractJointAngle(pose, 'squat');
+    squatAnalyzer.update({ angle: joint?.angle, visible: !!joint, timestamp: t + 1, landmarks: pose });
+  }
+  assert.equal(squatAnalyzer.count, 0, 'Squat fault 1 has 0 full reps');
+  assert.equal(squatAnalyzer.partialCount, 2, 'Squat fault 1 flags both cycles as shallow reps');
+
+  // Curl fault 0: arm swing triggers checkPostureFault
+  const curlSwingPose = simulatePose(2350, 'curl', { mode: 'fault', faultIndex: 0 });
+  const swingFault = checkPostureFault(curlSwingPose, 'curl', '左侧');
+  assert.equal(swingFault?.code, 'arm_swing', 'Curl fault 0 triggers arm_swing');
 });

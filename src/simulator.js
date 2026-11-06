@@ -2,7 +2,7 @@
 function blank() { return Array.from({ length: 33 }, () => ({ x: 0, y: 0, visibility: 0 })); }
 function put(points, index, x, y) { points[index] = { x, y, visibility: 0.99 }; }
 
-export function simulatedAngle(elapsedMs, exerciseId) {
+export function simulatedAngle(elapsedMs, exerciseId, options = {}) {
   const period = 4700;
   const cycle = Math.floor(elapsedMs / period);
   const t = (elapsedMs % period) / period;
@@ -10,11 +10,24 @@ export function simulatedAngle(elapsedMs, exerciseId) {
   // or changing standing/peak angles consumed by the counting state machine.
   const easing = (u, skew) => u * u * (3 - 2 * u) + skew * 4 * u * u * (1 - u) * (1 - u);
 
+  const full = exerciseId === 'squat' ? 91 : (exerciseId === 'jumping_jack' ? 138 : 52);
+  const partial = exerciseId === 'squat' ? 128 : (exerciseId === 'jumping_jack' ? 85 : 108);
+
+  let peak;
+  if (options.mode === 'standard') {
+    // Pure standard mode: every cycle reaches 100% full textbook target depth
+    peak = full;
+  } else if (options.mode === 'fault') {
+    // Fault mode: if faultIndex is 1 (or shallow), demonstrate shallow amplitude; otherwise full depth with form fault
+    const isShallow = options.faultIndex === 1 || options.faultId?.includes('shallow');
+    peak = isShallow ? partial : full;
+  } else {
+    // Backward compatibility for existing unit tests & automated benchmarks
+    peak = cycle % 4 === 2 ? partial : full;
+  }
+
+  const standing = exerciseId === 'jumping_jack' ? 25 : 174;
   if (exerciseId === 'jumping_jack') {
-    const full = 138;
-    const partial = 85;
-    const peak = cycle % 4 === 2 ? partial : full;
-    const standing = 25;
     if (t < .18) return standing;
     if (t < .46) return standing + (peak - standing) * easing((t - .18) / .28, -0.28);
     if (t < .57) return peak;
@@ -22,14 +35,10 @@ export function simulatedAngle(elapsedMs, exerciseId) {
     return standing;
   }
 
-  const full = exerciseId === 'squat' ? 91 : 52;
-  const partial = exerciseId === 'squat' ? 128 : 108;
-  const floor = cycle % 4 === 2 ? partial : full;
-  const standing = 174;
   if (t < .18) return standing;
-  if (t < .46) return standing - (standing - floor) * easing((t-.18)/.28, -0.28);
-  if (t < .57) return floor;
-  if (t < .86) return floor + (standing-floor) * easing((t-.57)/.29, 0.28);
+  if (t < .46) return standing - (standing - peak) * easing((t-.18)/.28, -0.28);
+  if (t < .57) return peak;
+  if (t < .86) return peak + (standing-peak) * easing((t-.57)/.29, 0.28);
   return standing;
 }
 
@@ -37,14 +46,39 @@ export function simulatePose(elapsedMs, exerciseId, options = {}) {
   const period = 4700;
   const cycle = Math.floor(elapsedMs / period);
   const t = (elapsedMs % period) / period;
-  const injectFault = options.simulateFault && cycle % 4 === 1 && t >= 0.38 && t <= 0.65;
+
+  let injectFault = false;
+  let activeFaultIndex = 0;
+
+  if (options.mode === 'standard') {
+    injectFault = false;
+  } else if (options.mode === 'fault') {
+    activeFaultIndex = options.faultIndex ?? 0;
+    if (exerciseId === 'squat') {
+      // 0: trunk_lean (injected at bottom)
+      // 1: shallow_squat (depth handled by simulatedAngle)
+      injectFault = activeFaultIndex === 0 && t >= 0.38 && t <= 0.65;
+    } else if (exerciseId === 'curl') {
+      // 0: arm_swing (elbow flare during curl)
+      // 1: shallow_curl (depth handled by simulatedAngle)
+      injectFault = activeFaultIndex === 0 && t >= 0.38 && t <= 0.65;
+    } else if (exerciseId === 'jumping_jack') {
+      // 0: asymmetry_or_desync (arms overhead, legs close early)
+      // 1: arm_asymmetry (right arm restricted)
+      // 2: static_legs (legs don't spread)
+      injectFault = activeFaultIndex === 1 && t >= 0.38 && t <= 0.65;
+    }
+  } else {
+    // Backward compatibility for existing unit tests & benchmarks
+    injectFault = options.simulateFault && cycle % 4 === 1 && t >= 0.38 && t <= 0.65;
+  }
 
   const points = blank();
-  const angle = simulatedAngle(elapsedMs, exerciseId) * Math.PI / 180;
+  const angleDeg = simulatedAngle(elapsedMs, exerciseId, options);
+  const angle = angleDeg * Math.PI / 180;
 
   if (exerciseId === 'jumping_jack') {
-    const angleDeg = simulatedAngle(elapsedMs, exerciseId);
-    const leftTheta = angleDeg * Math.PI / 180;
+    const leftTheta = angle;
     const rightAngleDeg = injectFault ? angleDeg * 0.45 : angleDeg;
     const rightTheta = rightAngleDeg * Math.PI / 180;
 
@@ -69,7 +103,16 @@ export function simulatePose(elapsedMs, exerciseId, options = {}) {
     put(points, 14, rightShoulderX + elbowLen * Math.sin(rightTheta), shoulderY + elbowLen * Math.cos(rightTheta));
     put(points, 16, rightShoulderX + armLen * Math.sin(rightTheta), shoulderY + armLen * Math.cos(rightTheta));
 
-    const legSpread = Math.max(0, (angleDeg - 25) / 113) * 0.10;
+    let legSpread = Math.max(0, (angleDeg - 25) / 113) * 0.10;
+    if (options.mode === 'fault') {
+      if (activeFaultIndex === 0) {
+        // Desync: arms are overhead (t in 0.40..0.65), but legs close early to simulate desynchronization
+        if (t >= 0.42 && t <= 0.62) legSpread = 0.01;
+      } else if (activeFaultIndex === 2) {
+        // Static legs: feet stay completely still
+        legSpread = 0;
+      }
+    }
     const kneeY = 0.76;
     const ankleY = 0.92;
     put(points, 25, leftHipX - legSpread * 0.5, kneeY);
@@ -80,7 +123,7 @@ export function simulatePose(elapsedMs, exerciseId, options = {}) {
     put(points, 30, rightHipX + legSpread + 0.02, ankleY + 0.01);
     put(points, 0, (leftShoulderX + rightShoulderX) / 2, shoulderY - 0.12);
   } else if (exerciseId === 'squat') {
-    const angleDeg = simulatedAngle(elapsedMs, exerciseId);
+    const angleDeg = simulatedAngle(elapsedMs, exerciseId, options);
     const squatRatio = Math.max(0, Math.min(1, (174 - angleDeg) / (174 - 91)));
     const R = 960 / 540; // 16:9 canvas aspect ratio for rigid, distortion-free pixel proportions
     const L_shin = 0.22, L_thigh = 0.21, L_torso = 0.23, L_arm = 0.17;
@@ -134,7 +177,7 @@ export function simulatePose(elapsedMs, exerciseId, options = {}) {
     const headY = shoulderY - (0.07 * c_t) - 0.02;
     put(points, 0, headX, headY);
   } else {
-    const angleDeg = simulatedAngle(elapsedMs, exerciseId);
+    const angleDeg = simulatedAngle(elapsedMs, exerciseId, options);
     const shoulderX = 0.52, shoulderY = 0.28;
     const L_upper = 0.20, L_fore = 0.18;
 

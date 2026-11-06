@@ -37,3 +37,47 @@ html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--ink)}
 .camera-stage.simulating .sim-label{background:rgba(15,35,42,.91);color:#e9cc8c;border-color:rgba(244,207,125,.28);box-shadow:none}
 .camera-stage.simulating .stage-tag{background:rgba(12,30,39,.86)}
 .camera-stage.simulating .perf-tag{background:rgba(14,36,45,.88);color:#aae8cd;border-color:rgba(91,180,155,.25)}
+
+/* Educational Demo & Fault Analysis Guide */
+.demo-guide-section{margin-top:16px}
+.demo-guide-card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:18px 20px;transition:border-color .2s,box-shadow .2s}
+.demo-guide-card.guide-demo-active{border-color:#bbf7d0;box-shadow:0 4px 18px rgba(34,197,94,0.08)}
+.guide-header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:15px;padding-bottom:12px;border-bottom:1px solid #eef2f6}
+.guide-title-box{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.guide-badge{font-size:10px;font-weight:800;letter-spacing:.5px;padding:4px 10px;border-radius:20px}
+.badge-std{background:#dcfce7;color:#15803d}
+.badge-fault{background:#fee2e2;color:#b91c1c}
+.guide-subtitle{font-size:12px;color:#334155}
+.guide-tabs{display:flex;gap:6px}
+.guide-tab-btn{border:1px solid #d1d5db;background:#f8fafc;color:#475569;font-size:11px;font-weight:700;padding:6px 13px;border-radius:8px;transition:all .15s}
+.guide-tab-btn:hover{background:#f1f5f9;color:#0f172a}
+.guide-tab-btn.active{background:#193444;color:var(--accent);border-color:#193444;box-shadow:0 2px 6px rgba(25,52,68,0.2)}
+.guide-summary-line{background:#f8fafc;border-left:3px solid #10b981;padding:9px 12px;border-radius:6px;font-size:12px;margin-bottom:14px;color:#1e293b}
+.guide-summary-tag{background:#e2e8f0;color:#475569;font-size:10px;font-weight:800;padding:2px 6px;border-radius:4px;margin-right:8px}
+.std-cues-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:14px}
+.cue-item{background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:12px;display:flex;gap:9px}
+.cue-num{font-size:16px;font-weight:900;color:#10b981;opacity:.85;line-height:1}
+.cue-body strong{display:block;font-size:11px;color:#1f2937;margin-bottom:4px}
+.cue-body p{margin:0;font-size:10px;line-height:1.6;color:#64748b}
+.fault-selector-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.fault-sel-label{font-size:11px;font-weight:800;color:#475569}
+.fault-pills{display:flex;gap:8px;flex-wrap:wrap}
+.fault-pill{padding:5px 12px;border-radius:20px;border:1px solid #cbd5e1;background:#fff;font-size:11px;font-weight:700;color:#475569;transition:all .15s}
+.fault-pill:hover{background:#f1f5f9;border-color:#94a3b8}
+.fault-pill.active{background:#fee2e2;border-color:#ef4444;color:#b91c1c;box-shadow:0 2px 8px rgba(239,68,68,0.18)}
+.fault-detail-box{background:#fff;border:1px solid #fed7aa;border-radius:12px;padding:14px 16px;margin-bottom:12px}
+.fault-detail-title{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.fault-badge-tag{font-size:9px;font-weight:800;background:#fef3c7;color:#b45309;padding:3px 7px;border-radius:5px}
+.fault-detail-title h4{font-size:13px;font-weight:800;margin:0;color:#9a3412}
+.fault-breakdown-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+.breakdown-card{border-radius:9px;padding:10px 12px;font-size:11px;line-height:1.65}
+.breakdown-card .b-head{display:flex;align-items:center;gap:6px;margin-bottom:5px;font-size:10px}
+.breakdown-card .b-head strong{font-size:11px}
+.breakdown-card p{margin:0;color:#334155}
+.card-where{background:#fff7ed;border:1px solid #ffedd5}.card-where .b-head strong{color:#c2410c}
+.card-why{background:#fef2f2;border:1px solid #fee2e2}.card-why .b-head strong{color:#b91c1c}
+.card-fix{background:#f0fdf4;border:1px solid #dcfce7}.card-fix .b-head strong{color:#15803d}
+.card-ai{background:#eff6ff;border:1px solid #dbeafe}.card-ai .b-head strong{color:#1d4ed8}
+.guide-footer-tip{font-size:10px;color:#64748b;background:#f8fafc;padding:7px 11px;border-radius:6px;border:1px dashed #cbd5e1;line-height:1.6}
+.pill-fault{color:#ef4444}
+@media(max-width:768px){.std-cues-grid,.fault-breakdown-grid{grid-template-columns:1fr}}

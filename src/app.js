@@ -1,4 +1,4 @@
-import { EXERCISES, ExerciseAnalyzer, extractJointAngle, DIFFICULTY_PRESETS } from './exercise.js';
+import { EXERCISES, ExerciseAnalyzer, extractJointAngle, DIFFICULTY_PRESETS, EXERCISE_GUIDES } from './exercise.js';
 import { loadSessions, saveSession, clearSessions, makeAdvice, exportSessionsCSV, exportSessionsJSON, computeMaeStats, deriveVerifiedAbsError } from './store.js';
 import { createPoseLandmarker } from './pose.js';
 import { drawPose, drawIdle } from './draw.js';
@@ -19,6 +19,7 @@ const root = document.querySelector('#app');
 const state = {
   view: 'home', exercise: 'squat', goal: 'habit', fatigue: 'normal', facing: 'user',
   difficulty: 'standard', targetReps: 10, targetAchieved: false,
+  demoType: 'standard', selectedFaultIndex: 0,
   voice: false, mode: null, running: false, paused: false,
   analyzer: new ExerciseAnalyzer('squat', { difficulty: 'standard', targetReps: 10 }),
   stream: null, detector: null, frame: 0, lastFrame: 0, lastVideoTime: -1,
@@ -90,6 +91,116 @@ function homePage() {
     <section class="callout"><div><span class="chip">COURSE DEMO</span><h3>无需配置服务端，即可开始探索。</h3><p>模拟模式不运行 AI；真实识别需要摄像头权限及首次加载模型的网络连接。演示时请明确区分。</p></div><button class="btn btn-secondary" data-action="open-training">开始使用 →</button></section>
   </div>`;
 }
+function renderDemoGuideHTML() {
+  const guide = EXERCISE_GUIDES[state.exercise] || EXERCISE_GUIDES.squat;
+  const isDemoActive = state.mode === 'demo';
+  const activeTab = state.demoType || 'standard';
+  const faultCount = guide.faults ? guide.faults.length : 0;
+  const safeFaultIdx = Math.min(Math.max(0, state.selectedFaultIndex || 0), Math.max(0, faultCount - 1));
+  const curFault = guide.faults?.[safeFaultIdx] || guide.faults?.[0];
+
+  return `<div class="demo-guide-card ${isDemoActive ? 'guide-demo-active' : ''}">
+    <div class="guide-header">
+      <div class="guide-title-box">
+        <span class="guide-badge ${activeTab === 'fault' ? 'badge-fault' : 'badge-std'}">
+          ${activeTab === 'fault' ? '⚠ 动作代偿与常见错误剖析' : '✓ 动作标准与生物力学示范'}
+        </span>
+        <strong class="guide-subtitle">${escapeText(guide.standard.title)}</strong>
+      </div>
+      <div class="guide-tabs" role="tablist">
+        <button type="button" class="guide-tab-btn ${activeTab === 'standard' ? 'active' : ''}" data-action="switch-demo-tab" data-tab="standard">
+          ✓ 正确姿势示范
+        </button>
+        <button type="button" class="guide-tab-btn ${activeTab === 'fault' ? 'active' : ''}" data-action="switch-demo-tab" data-tab="fault">
+          ⚠ 常见错误姿势 (${faultCount})
+        </button>
+      </div>
+    </div>
+
+    ${activeTab === 'standard' ? `
+      <div class="guide-content guide-content-std">
+        <div class="guide-summary-line">
+          <span class="guide-summary-tag">动作核心要领</span>
+          <strong>${escapeText(guide.standard.summary)}</strong>
+        </div>
+        <div class="std-cues-grid">
+          ${guide.standard.cues.map((cue, idx) => `
+            <div class="cue-item">
+              <span class="cue-num">0${idx + 1}</span>
+              <div class="cue-body">
+                <strong>${escapeText(cue.label)}</strong>
+                <p>${escapeText(cue.desc)}</p>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+        <div class="guide-footer-tip">
+          ${isDemoActive && state.demoType === 'standard'
+            ? '▶ 正在以标准生物力学轨迹循环演示：大腿下潜达标、躯干稳定、双线平行，每次动作完整计入有效次数。'
+            : '💡 提示：点击上方「▷ 正确姿势示范」按钮可随时开启纯净标准动作合成骨架演示。'}
+        </div>
+      </div>
+    ` : `
+      <div class="guide-content guide-content-fault">
+        <div class="fault-selector-row">
+          <span class="fault-sel-label">选择典型错误：</span>
+          <div class="fault-pills">
+            ${guide.faults.map((f, idx) => `
+              <button type="button" class="fault-pill ${idx === safeFaultIdx ? 'active' : ''}" data-action="select-fault" data-fault-index="${idx}">
+                ${escapeText(f.tag)} · ${escapeText(f.shortName)}
+              </button>
+            `).join('')}
+          </div>
+        </div>
+
+        ${curFault ? `
+          <div class="fault-detail-box">
+            <div class="fault-detail-title">
+              <span class="fault-badge-tag">${escapeText(curFault.tag)}</span>
+              <h4>${escapeText(curFault.name)}</h4>
+            </div>
+
+            <div class="fault-breakdown-grid">
+              <div class="breakdown-card card-where">
+                <div class="b-head"><span class="b-icon">📍</span><strong>错在哪（代偿位置）</strong></div>
+                <p>${escapeText(curFault.where)}</p>
+              </div>
+
+              <div class="breakdown-card card-why">
+                <div class="b-head"><span class="b-icon">⚠️</span><strong>为什么错（损伤隐患）</strong></div>
+                <p>${escapeText(curFault.why)}</p>
+              </div>
+
+              <div class="breakdown-card card-fix">
+                <div class="b-head"><span class="b-icon">💡</span><strong>如何纠正（动作要领）</strong></div>
+                <p>${escapeText(curFault.correction)}</p>
+              </div>
+
+              <div class="breakdown-card card-ai">
+                <div class="b-head"><span class="b-icon">🤖</span><strong>AI 判定规则（检测逻辑）</strong></div>
+                <p>${escapeText(curFault.aiRule)}</p>
+              </div>
+            </div>
+
+            <div class="guide-footer-tip">
+              ${isDemoActive && state.demoType === 'fault'
+                ? `▶ 正在模拟「${escapeText(curFault.shortName)}」错误动作：请观察上方骨架关键点异常轨迹与右侧 AI 状态机警报。`
+                : '💡 提示：点击上方「⚠ 常见错误演示」按钮可模拟此类代偿动作，便于观察系统如何识别并拦截错误。'}
+            </div>
+          </div>
+        ` : ''}
+      </div>
+    `}
+  </div>`;
+}
+
+function updateDemoGuideUI() {
+  const guideSec = document.querySelector('#demoGuideSection');
+  if (guideSec) {
+    guideSec.innerHTML = renderDemoGuideHTML();
+  }
+}
+
 function trainingPage() {
   const ex = EXERCISES[state.exercise];
   return `<div class="page training-page">
@@ -97,9 +208,10 @@ function trainingPage() {
     <div class="training-layout"><section class="camera-column">
       <div class="module-heading"><div><span class="section-index">01</span><strong>视觉训练区域</strong></div><span id="modePill" class="mode-pill">● 等待开始</span></div>
       <div class="camera-stage" id="cameraStage"><video id="liveVideo" autoplay muted playsinline></video><canvas id="poseCanvas" width="960" height="540" aria-label="人体骨架叠加画布"></canvas><div class="scan-corner tl"></div><div class="scan-corner tr"></div><div class="scan-corner bl"></div><div class="scan-corner br"></div><div class="stage-top"><span class="stage-tag">POSE TRACKING / ${ex.english}</span><span id="perfIndicator" class="perf-tag">-- FPS</span><span id="stageIndicator">STANDBY</span></div><div class="stage-bottom" id="stageHint">请使用下方按钮开启摄像头或模拟演示（空格键暂停/继续）</div><div class="sim-label" id="simLabel">模拟数据 · 非真实 AI 识别</div></div>
-      <div class="camera-actions"><button class="btn btn-primary" data-action="start-camera" id="startCamera">◉ &nbsp; 启动 AI 摄像头</button><button class="btn btn-outline" data-action="select-video" id="startVideo">🎞 &nbsp; 本地视频评测</button><button class="btn btn-outline" data-action="start-demo" id="startDemo">▷ &nbsp; 模拟演示</button><button class="btn btn-muted" data-action="pause" id="pauseBtn" disabled>暂停</button><button class="btn btn-danger" data-action="end" id="endBtn" disabled>结束训练</button><input type="file" id="videoFileInput" accept="video/mp4,video/webm,video/ogg,video/quicktime" style="display:none"></div>
+      <div class="camera-actions"><button class="btn btn-primary" data-action="start-camera" id="startCamera">◉ &nbsp; 启动 AI 摄像头</button><button class="btn btn-outline" data-action="select-video" id="startVideo">🎞 &nbsp; 本地视频评测</button><button class="btn btn-outline" data-action="start-demo-standard" id="startDemoStandard" title="展示 100% 达标深度的标准动作规范示范">▷ &nbsp; 正确姿势示范</button><button class="btn btn-outline" data-action="start-demo-fault" id="startDemoFault" title="展示常见代偿动作与 AI 警报判定">⚠ &nbsp; 常见错误演示</button><button class="btn btn-muted" data-action="pause" id="pauseBtn" disabled>暂停</button><button class="btn btn-danger" data-action="end" id="endBtn" disabled>结束训练</button><input type="file" id="videoFileInput" accept="video/mp4,video/webm,video/ogg,video/quicktime" style="display:none"></div>
       <div id="modelMessage" class="model-message" role="status">真实模式首次启动将从 Google / jsDelivr 加载模型与运行库，需要联网；模拟模式不使用 AI。</div>
       <div class="instruction"><span class="info-dot">i</span><div><strong>机位建议</strong><p id="cameraGuidance">${ex.guidance}</p></div></div>
+      <div id="demoGuideSection" class="demo-guide-section">${renderDemoGuideHTML()}</div>
     </section><aside class="analysis-column">
       <div class="module-heading"><div><span class="section-index">02</span><strong>动作设置与分析</strong></div><span class="mini-sub">REAL-TIME</span></div>
       <div class="settings-card"><div class="input-label">选择动作 <span>EXERCISE</span></div><div class="exercise-switch"><button type="button" data-exercise="squat" class="exercise-btn ${state.exercise==='squat'?'selected':''}">深蹲 <small>SQUAT</small></button><button type="button" data-exercise="curl" class="exercise-btn ${state.exercise==='curl'?'selected':''}">弯举 <small>CURL</small></button><button type="button" data-exercise="jumping_jack" class="exercise-btn ${state.exercise==='jumping_jack'?'selected':''}">开合跳 <small>JACK</small></button></div><div class="select-grid"><label>训练目标<select id="goalInput"><option value="habit" ${state.goal==='habit'?'selected':''}>培养习惯</option><option value="strength" ${state.goal==='strength'?'selected':''}>力量训练</option><option value="endurance" ${state.goal==='endurance'?'selected':''}>提高耐力</option></select></label><label>目前疲劳<select id="fatigueInput"><option value="normal" ${state.fatigue==='normal'?'selected':''}>一般</option><option value="low" ${state.fatigue==='low'?'selected':''}>较低</option><option value="high" ${state.fatigue==='high'?'selected':''}>较高</option></select></label></div><div class="select-grid" style="margin-top:10px"><label>动作难度<select id="difficultySelect"><option value="beginner" ${state.difficulty==='beginner'?'selected':''}>初学 (幅度阈值较低)</option><option value="standard" ${state.difficulty==='standard'?'selected':''}>标准 (推荐)</option><option value="advanced" ${state.difficulty==='advanced'?'selected':''}>进阶 (更高幅度要求)</option></select></label><label>目标次数<select id="targetRepsSelect"><option value="0" ${state.targetReps===0?'selected':''}>自由练习 (不限)</option><option value="5" ${state.targetReps===5?'selected':''}>5 次 (体验组)</option><option value="10" ${state.targetReps===10?'selected':''}>10 次 (标准组)</option><option value="15" ${state.targetReps===15?'selected':''}>15 次 (耐力组)</option></select></label></div><div class="minor-options"><label class="voice-option"><input type="checkbox" id="voiceToggle" ${state.voice?'checked':''}> <span>语音反馈</span><button type="button" class="btn-text-test" data-action="test-voice" title="测试播报">试听 🔊</button></label><label>摄像头 <select id="facingSelect"><option value="user" ${state.facing==='user'?'selected':''}>前置</option><option value="environment" ${state.facing==='environment'?'selected':''}>后置</option></select></label></div></div>
@@ -144,11 +256,11 @@ function refreshModeUI() {
   stage.classList.toggle('simulating', state.mode === 'demo');
   stage.classList.toggle('camera-live', state.mode === 'camera' || state.mode === 'video');
   const pill = document.querySelector('#modePill');
-  pill.textContent = state.mode === 'demo' ? '● 模拟输入 · 非 AI'
+  pill.textContent = state.mode === 'demo' ? (state.demoType === 'fault' ? '● 模拟错误演示 · 非 AI' : '● 模拟标准示范 · 非 AI')
     : state.mode === 'video' ? (state.modelReady ? '● 本地视频 · 真实 AI 识别' : '◌ AI 模型加载中')
     : state.mode === 'camera' ? (state.modelReady ? '● 真实 AI 识别' : '◌ AI 模型加载中')
     : '● 等待开始';
-  pill.className = `mode-pill ${state.mode==='demo'?'pill-demo':''} ${(state.mode==='camera'||state.mode==='video')?'pill-live':''}`;
+  pill.className = `mode-pill ${state.mode==='demo'?(state.demoType==='fault'?'pill-fault':'pill-demo'):''} ${(state.mode==='camera'||state.mode==='video')?'pill-live':''}`;
   const startCamBtn = document.querySelector('#startCamera');
   if (startCamBtn) {
     startCamBtn.disabled = !!state.mode;
@@ -159,7 +271,12 @@ function refreshModeUI() {
     startVideoBtn.disabled = !!state.mode;
     startVideoBtn.innerHTML = state.mode === 'video' && !state.modelReady ? '⏳ 正在载入…' : '🎞 &nbsp; 本地视频评测';
   }
-  document.querySelector('#startDemo').disabled = !!state.mode;
+  const demoStdBtn = document.querySelector('#startDemoStandard');
+  if (demoStdBtn) demoStdBtn.disabled = !!state.mode;
+  const demoFaultBtn = document.querySelector('#startDemoFault');
+  if (demoFaultBtn) demoFaultBtn.disabled = !!state.mode;
+  const oldDemoBtn = document.querySelector('#startDemo');
+  if (oldDemoBtn) oldDemoBtn.disabled = !!state.mode;
   document.querySelector('#pauseBtn').disabled = !state.mode;
   document.querySelector('#pauseBtn').textContent = state.paused ? '继续' : '暂停';
   document.querySelector('#endBtn').disabled = !state.mode;
@@ -169,14 +286,15 @@ function refreshModeUI() {
   const targetSelect = document.querySelector('#targetRepsSelect');
   if (diffSelect) diffSelect.disabled = !!state.mode;
   if (targetSelect) targetSelect.disabled = !!state.mode;
-  document.querySelector('#stageIndicator').textContent = state.mode === 'demo' ? 'SIMULATED'
+  document.querySelector('#stageIndicator').textContent = state.mode === 'demo'
+    ? (state.demoType === 'fault' ? 'FAULT DEMO' : 'STANDARD')
     : state.mode === 'video' ? (state.modelReady ? 'VIDEO AI' : 'LOADING MODEL')
     : state.mode === 'camera' ? (state.modelReady ? 'AI CAMERA' : 'LOADING MODEL')
     : 'STANDBY';
   const perfTag = document.querySelector('#perfIndicator');
   if (perfTag) {
     if (state.mode && state.renderFps !== undefined) {
-      const modeLabel = state.mode === 'demo' ? '演示' : 'AI推理';
+      const modeLabel = state.mode === 'demo' ? (state.demoType === 'fault' ? '错误演示' : '标准示范') : 'AI推理';
       perfTag.textContent = `渲染 ${state.renderFps} FPS · ${modeLabel} ${state.inferFps || 0} FPS · 耗时 ${state.latencyMs ? state.latencyMs + 'ms' : '0ms'}`;
     } else {
       perfTag.textContent = state.mode ? '正在测速…' : '-- FPS';
@@ -322,11 +440,15 @@ function renderFrame(now) {
     state.inferFramesWindow = (state.inferFramesWindow || 0) + 1;
     state.totalInferredFrames = (state.totalInferredFrames || 0) + 1;
     const elapsed = now - state.startPerf - state.pauseDuration;
-    const landmarks = simulatePose(elapsed, state.exercise, { simulateFault: true });
+    const landmarks = simulatePose(elapsed, state.exercise, {
+      mode: state.demoType || 'standard',
+      faultIndex: state.selectedFaultIndex || 0,
+      simulateFault: true
+    });
     const snapshot = onResult(landmarks, now);
     drawPose(canvas, landmarks, {
       width: 960, height: 540,
-      label: 'SYNTHETIC POSE · NOT AI',
+      label: state.demoType === 'fault' ? 'FAULT DEMO · 错误姿势演示' : 'STANDARD DEMO · 正确姿势示范',
       demoExercise: state.exercise,
       highlightJoints: state.currentHighlightJoints,
       angle: snapshot?.angle ?? null,
@@ -378,9 +500,11 @@ function stopRealtime() {
   }
   if (window.speechSynthesis) window.speechSynthesis.cancel();
 }
-async function begin(mode, file = null) {
+async function begin(mode, file = null, options = {}) {
   if (state.mode) return;
   state.mode = mode; state.running = true; state.paused = false;
+  if (options.demoType) state.demoType = options.demoType;
+  if (options.faultIndex !== undefined) state.selectedFaultIndex = options.faultIndex;
   state.startWall = Date.now(); state.startPerf = performance.now();
   state.pauseDuration = 0; state.lastFrame = 0; state.lastVideoTime = -1;
   state.fpsFrames = 0; state.totalInferredFrames = 0; state.inferFramesWindow = 0; state.fpsLastTime = 0;
@@ -388,10 +512,17 @@ async function begin(mode, file = null) {
   state.warningLogs = []; state.modelReady = false; state.trackedFrames = 0; state.targetAchieved = false;
   state.analyzer.configure(state.exercise, { difficulty: state.difficulty, targetReps: state.targetReps });
   const run = ++state.activeRunId;
-  refreshModeUI(); updateTrainingUI();
+  refreshModeUI(); updateTrainingUI(); updateDemoGuideUI();
   if (mode === 'demo') {
-    modelMessage('当前运行的是合成骨架演示，没有调用 AI 模型。可用于预览界面与验证计数状态机。', 'demo');
-    inform('模拟输入已开始：每 4 个动作周期包含 1 次不完整幅度，便于检验纠错逻辑。');
+    const guide = EXERCISE_GUIDES[state.exercise] || EXERCISE_GUIDES.squat;
+    if (state.demoType === 'fault') {
+      const f = guide.faults[state.selectedFaultIndex] || guide.faults[0];
+      modelMessage(`当前运行的是「常见错误演示 · ${f.shortName}」，不调用 AI 模型。用于直观展示代偿动作与 AI 警报判定。`, 'demo');
+      inform(`常见错误演示已启动：正在演示【${f.name}】，请观察下方代偿机理与为什么错。`);
+    } else {
+      modelMessage('当前运行的是「正确姿势规范示范」，不调用 AI 模型。用于展示标准生物力学动作深度与计数闭环。', 'demo');
+      inform('标准姿势示范已启动：双平行线力矩平衡、充分下潜幅度，全程稳定计数。');
+    }
     state.frame = requestAnimationFrame(renderFrame);
     return;
   }
@@ -599,6 +730,7 @@ function finishSession(manualCount = null) {
   };
   stopRealtime(); state.mode=null; state.paused=false; state.modelReady=false;
   saveSession(record); state.lastSession = record;
+  updateDemoGuideUI();
   return record;
 }
 function toast(message) {
@@ -613,13 +745,84 @@ document.addEventListener('click', async event => {
   const nav = event.target.closest('[data-view]');
   if (nav) { setView(nav.dataset.view); return; }
   const exBtn = event.target.closest('[data-exercise]');
-  if (exBtn) { if (state.mode) {toast('请结束当前训练后再切换动作');return;} state.exercise = exBtn.dataset.exercise; state.analyzer.configure(state.exercise, { difficulty: state.difficulty, targetReps: state.targetReps }); renderPage(); return; }
+  if (exBtn) {
+    if (state.mode) { toast('请结束当前训练后再切换动作'); return; }
+    state.exercise = exBtn.dataset.exercise;
+    state.selectedFaultIndex = 0;
+    state.analyzer.configure(state.exercise, { difficulty: state.difficulty, targetReps: state.targetReps });
+    renderPage();
+    return;
+  }
   const action = event.target.closest('[data-action]')?.dataset.action;
   if (!action) return;
   switch(action) {
     case 'open-training': setView('training'); break;
-    case 'quick-demo': setView('training'); await begin('demo'); break;
-    case 'start-demo': await begin('demo'); break;
+    case 'quick-demo': setView('training'); await begin('demo', null, { demoType: 'standard' }); break;
+    case 'start-demo': await begin('demo', null, { demoType: state.demoType || 'standard' }); break;
+    case 'start-demo-standard': {
+      if (state.mode === 'demo') {
+        state.demoType = 'standard';
+        updateDemoGuideUI();
+        refreshModeUI();
+        inform('已切换为：正确姿势规范示范（100% 达标深度）。');
+        modelMessage('当前运行的是「正确姿势规范示范」，不调用 AI 模型。用于展示标准生物力学动作深度与计数闭环。', 'demo');
+      } else if (!state.mode) {
+        await begin('demo', null, { demoType: 'standard' });
+      } else {
+        toast('请先结束当前训练');
+      }
+      break;
+    }
+    case 'start-demo-fault': {
+      if (state.mode === 'demo') {
+        state.demoType = 'fault';
+        updateDemoGuideUI();
+        refreshModeUI();
+        const guide = EXERCISE_GUIDES[state.exercise] || EXERCISE_GUIDES.squat;
+        const f = guide.faults[state.selectedFaultIndex] || guide.faults[0];
+        inform(`已切换为常见错误演示：【${f.name}】。`);
+        modelMessage(`当前运行的是「常见错误演示 · ${f.shortName}」，不调用 AI 模型。用于直观展示代偿动作与 AI 警报判定。`, 'demo');
+      } else if (!state.mode) {
+        await begin('demo', null, { demoType: 'fault' });
+      } else {
+        toast('请先结束当前训练');
+      }
+      break;
+    }
+    case 'switch-demo-tab': {
+      const tab = event.target.closest('[data-tab]')?.dataset.tab || 'standard';
+      state.demoType = tab;
+      updateDemoGuideUI();
+      refreshModeUI();
+      if (state.mode === 'demo') {
+        if (tab === 'fault') {
+          const guide = EXERCISE_GUIDES[state.exercise] || EXERCISE_GUIDES.squat;
+          const f = guide.faults[state.selectedFaultIndex] || guide.faults[0];
+          inform(`已切换为常见错误演示：【${f.name}】。`);
+          modelMessage(`当前运行的是「常见错误演示 · ${f.shortName}」，不调用 AI 模型。`, 'demo');
+        } else {
+          inform('已切换为：正确姿势规范示范。');
+          modelMessage('当前运行的是「正确姿势规范示范」，不调用 AI 模型。', 'demo');
+        }
+      }
+      break;
+    }
+    case 'select-fault': {
+      const idx = parseInt(event.target.closest('[data-fault-index]')?.dataset.faultIndex, 10) || 0;
+      state.selectedFaultIndex = idx;
+      state.demoType = 'fault';
+      updateDemoGuideUI();
+      refreshModeUI();
+      const guide = EXERCISE_GUIDES[state.exercise] || EXERCISE_GUIDES.squat;
+      const f = guide.faults[idx] || guide.faults[0];
+      if (state.mode === 'demo') {
+        inform(`已切换演示错误：【${f.name}】。`);
+        modelMessage(`当前演示错误：【${f.name}】。`, 'demo');
+      } else {
+        toast(`已选择错误剖析：${f.shortName}`);
+      }
+      break;
+    }
     case 'start-camera': await begin('camera'); break;
     case 'select-video': {
       const fileInput = document.querySelector('#videoFileInput');
