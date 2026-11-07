@@ -146,7 +146,7 @@ export const EXERCISE_GUIDES = Object.freeze({
   lunge: {
     standard: {
       title: '弓步 · 标准动作要领示范',
-      summary: '躯干垂直中立、前后双直角、前膝不冲脚尖、后膝悬垂点地。',
+      summary: '躯干中立、前膝稳定跟随脚尖方向、后脚以前掌支撑并自然提踵。',
       cues: [
         { label: '双腿前后直角', desc: '下潜至前腿大腿平行地面、后腿膝关节微屈悬垂，前后双膝各呈约 90° 夹角。' },
         { label: '躯干笔直垂直', desc: '脊柱保持中立向上延伸，核心肌群收紧，严禁前扑折腰或向后仰腹。' },
@@ -159,10 +159,10 @@ export const EXERCISE_GUIDES = Object.freeze({
         tag: '常见错误 01',
         name: '前膝过度前冲（前移超脚尖代偿）',
         shortName: '膝盖前冲',
-        where: '下蹲时膝盖大幅度往前顶超过脚尖，脚后跟离地，躯干严重向前折扑。',
-        why: '髌骨关节受力过载，髌腱承受巨大的撕裂拉力，易诱发髌下脂肪垫炎或膝前绞锁疼痛。',
-        correction: '加大双脚前后步幅，下蹲时将重心垂直向下坐而非向前跪，使前侧小腿近乎垂直于地面。',
-        aiRule: 'AI 检测到前膝水平位移超出脚尖过多或躯干前倾角 > 35°，实时触发 knee_over_toes 姿态警报。'
+        where: '下潜时前膝伴随异常前移、身体重心前扑且躯干前倾；单纯膝盖轻微越过脚尖并不必然属于错误。',
+        why: '失去控制的前移会改变膝髋负荷分配，影响动作稳定性；是否适宜前移取决于个体踝背屈、步幅与训练目标。',
+        correction: '调整前后站距，前脚保持稳定着地，膝盖跟随脚尖方向，控制髋部向下沉并维持躯干中立。',
+        aiRule: '前膝明显超脚尖并伴随过度前倾、膝部前冲超过设定范围或躯干前倾 > 35° 时，触发 knee_over_toes 姿态警报（示范规则，并非医疗诊断）。'
       },
       {
         id: 'shallow_lunge',
@@ -414,7 +414,13 @@ export function checkPostureFault(landmarks, exerciseId, side = '左侧', option
     const facing = toePx && Math.abs(toePx.x - anklePx.x) > 4
       ? Math.sign(toePx.x - anklePx.x) : 1;
     const kneeForward = Math.max(0, (kneePx.x - anklePx.x) * facing);
-    if (kneeForward > 44 || torsoLean > 35) {
+    const toeOverrun = toePx ? (kneePx.x - toePx.x) * facing : -Infinity;
+    // Use the actual toe coordinate: the new anatomical shin reaches ~40 px
+    // forwards, just 8px past the planted toe, without a grotesque hip lurch.
+    // A knee slightly beyond the toe is not inherently a fault. To flag the
+    // lunge compensation we also require noticeably forward-leaning trunk,
+    // unless tibial travel is itself clearly excessive (>44 px).
+    if (kneeForward > 44 || (toeOverrun > 6 && torsoLean > 18) || torsoLean > 35) {
       return { code: 'knee_over_toes', message: '保持躯干笔直中立，前膝避免过度前冲超过脚尖', value: Math.round(Math.max(kneeForward, torsoLean)) };
     }
   } else if (exerciseId === 'pushup') {

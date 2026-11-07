@@ -697,8 +697,8 @@ test('LUNGE & PUSHUP-RIGID: arms, legs, torso retain exact Euclidean pixel lengt
   }
 
   const pushupBones = [
-    [11, 13, 92.0, 'upper arm'],
-    [13, 15, 88.0, 'forearm'],
+    [11, 13, 84.0, 'upper arm'],
+    [13, 15, 76.0, 'forearm'],
     [11, 23, 145.0, 'torso'],
     [23, 25, 115.0, 'thigh'],
     [25, 27, 110.0, 'shin']

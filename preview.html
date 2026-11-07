@@ -152,7 +152,7 @@
 </head>
 <body>
 <div class="wrap">
-  <div class="tag">AI FIT COACH · POSE REFINE LAB v0.3.0</div>
+  <div class="tag">AI FIT COACH · POSE REFINE LAB v0.3.2</div>
   <h1 id="pageTitle">动作姿态与运动学对照精修实验室</h1>
   <p class="desc">960×540 像素各向同性坐标约束 · 全肢体欧氏骨长 100% 恒定刚体 · 周期严格固定 4700ms。左侧为标准正确动作示范，右侧对照典型错误代偿。拖动下方时间轴可逐帧精细对比骨骼形态与角度。</p>
 
@@ -276,6 +276,10 @@ function simulatedAngle(elapsedMs, exerciseId, options = {}) {
     full = diff === 'advanced' ? 173 : (diff === 'beginner' ? 160 : 168);
   } else if (exerciseId === 'lunge') {
     full = diff === 'advanced' ? 90 : (diff === 'beginner' ? 115 : 102);
+    // Knee-drive needs deeper FLEXION when the shin advances. Keeping the
+    // textbook knee angle while moving it past the toe forced the pelvis UP
+    // (the visually implausible forward-lunge from v0.3.1).
+    if (activeFault('lunge', options, cycle) === 0) full = Math.max(78, full - 22);
   } else if (exerciseId === 'pushup') {
     full = diff === 'advanced' ? 72 : (diff === 'beginner' ? 102 : 87);
   }
@@ -458,41 +462,68 @@ function simulateJumpingJack(elapsedMs, options, activeFaultIndex, t, angleDeg) 
   return p;
 }
 
-// Side-view split squat / stationary lunge. Neither foot ever slides during a
-// repetition. We solve the FRONT knee by exact 2-link IK from the planted ankle
-// and the prescribed knee angle; the rear knee is then solved against its own
-// planted ankle, so all four long-bone lengths remain independently rigid.
-// Standard and fault #0 use different *initial stances*: a shorter step is a
-// natural contributor to front-knee travel, not a foot teleport mid-rep.
+// Side-view, planted-front-foot lunge. A real forward knee drive is ankle
+// dorsiflexion plus additional knee flexion, NOT a hip teleported forwards at
+// the same knee angle. The lead shank and femur are a rigid angle chain:
+//   ankle -> knee (fixed SHIN), knee -> hip (fixed THIGH, measured angle).
+// The back foot pivots on a planted TOE as its heel rises; its ankle and knee
+// move rigidly via foot rotation and 2-link IK (a locked rear heel made the
+// trailing leg fold sideways and left the pelvis floating in midair).
 function simulateLunge(elapsedMs, options, activeFaultIndex, t, angleDeg, kneeDrive) {
   const p = blank();
   const W = 960, H = 540;
   const THIGH = 113.4, SHIN = 118.8, TORSO = 124.2;
-  const UPPER = 76.0, FOREARM = 76.0;
+  const UPPER = 76, FOREARM = 76;
   const RAD = Math.PI / 180;
-  const depth = Math.max(0, Math.min(1, (174 - angleDeg) / (174 - 90)));
-  const faultyStance = activeFaultIndex === 0;
+  const isKneeDrive = activeFaultIndex === 0;
+  const full = options.difficulty === 'advanced' ? 90 :
+    (options.difficulty === 'beginner' ? 115 : 102);
+  const peak = isKneeDrive ? Math.max(78, full - 22) :
+    activeFaultIndex === 1 ? 128 : full;
+  const depth = Math.max(0, Math.min(1, (174 - angleDeg) / (174 - peak)));
 
-  const frontAnkle = { x: 626, y: 450 }; // stance faces image-right
-  const rearAnkle = { x: faultyStance ? 455 : 355, y: 450 };
-  // The knee angle uniquely fixes the hip-to-ankle reach by the cosine law.
-  // Hip azimuth controls weight transfer independently without compromising it.
-  const reach = Math.sqrt(THIGH * THIGH + SHIN * SHIN -
-    2 * THIGH * SHIN * Math.cos(angleDeg * RAD));
-  const healthyAzimuth = 38 + 7 * depth;
-  const azimuth = (healthyAzimuth + (13 - healthyAzimuth) * kneeDrive) * RAD;
-  const hip = {
-    x: frontAnkle.x - reach * Math.sin(azimuth),
-    y: frontAnkle.y - reach * Math.cos(azimuth),
+  // The FRONT foot lies flat and never slides. Shank orientation starts with
+  // the knee slightly behind the ankle, advancing toward vertical on descent.
+  // At the faulty peak, ~20° dorsiflexion places the knee only ~8 px beyond
+  // the toe, as in a plausible exaggerated lunge (not an extreme lurch).
+  const frontAnkle = { x: 626, y: 450 };
+  const frontToe = { x: 658, y: 456 };
+  const frontHeel = { x: 610, y: 454 };
+  const shinTilt = (-35 + 29 * depth + 26 * kneeDrive) * RAD;
+  const frontKnee = {
+    x: frontAnkle.x + SHIN * Math.sin(shinTilt),
+    y: frontAnkle.y - SHIN * Math.cos(shinTilt),
   };
-  const frontKnee = rigidTwoLink(hip, frontAnkle, THIGH, SHIN, -1);
-  // In a healthy long split stance the trailing knee drops towards the floor.
-  // In the short-step fault it remains high as weight lurches over the lead toe.
-  const rearKnee = rigidTwoLink(hip, rearAnkle, THIGH, SHIN, faultyStance ? +1 : -1);
+  // Rotate the thigh around its REAL knee joint. The knee->ankle ray has
+  // azimuth PI/2 + shinTilt, so the visible interior angle equals angleDeg.
+  const femurDirection = Math.PI / 2 + shinTilt + angleDeg * RAD;
+  const hip = {
+    x: frontKnee.x + THIGH * Math.cos(femurDirection),
+    y: frontKnee.y + THIGH * Math.sin(femurDirection),
+  };
 
-  // The entire rib-cage pivots about the hip: forward knee-drive is coupled to
-  // trunk compensation but neither spine nor upper limbs can change length.
-  const torsoTilt = (3 + 6 * depth + 32 * kneeDrive) * RAD;
+  // REAR toe remains planted. Its 35.36 px toe-to-ankle rigid foot rotates
+  // from flat to a raised heel. No independent ankle or knee translation.
+  const rearToe = { x: 395, y: 455 };
+  const flatToeToAnkle = { x: -35, y: -5 };
+  const heelRise = (52 * depth + 23 * kneeDrive) * RAD;
+  const rearAnkle = {
+    x: rearToe.x + flatToeToAnkle.x * Math.cos(heelRise) - flatToeToAnkle.y * Math.sin(heelRise),
+    y: rearToe.y + flatToeToAnkle.x * Math.sin(heelRise) + flatToeToAnkle.y * Math.cos(heelRise),
+  };
+  // Human rear knee folds forward/down as the heel lifts. The other IK branch
+  // would place it BEHIND the pelvis and up in the air.
+  const rearKnee = rigidTwoLink(hip, rearAnkle, THIGH, SHIN, -1);
+  const toeVector = { x: rearToe.x - rearAnkle.x, y: rearToe.y - rearAnkle.y };
+  const footLen = Math.hypot(toeVector.x, toeVector.y);
+  const rearHeel = {
+    x: rearAnkle.x - 16 * toeVector.x / footLen,
+    y: rearAnkle.y - 16 * toeVector.y / footLen,
+  };
+
+  // No unnatural 41° trunk collapse. The fault is led by the knee and ankle;
+  // modest whole-torso lean follows the hips while the spine stays rigid.
+  const torsoTilt = (3 + 6 * depth + 14 * kneeDrive) * RAD;
   const shoulder = {
     x: hip.x + TORSO * Math.sin(torsoTilt),
     y: hip.y - TORSO * Math.cos(torsoTilt),
@@ -502,8 +533,7 @@ function simulateLunge(elapsedMs, options, activeFaultIndex, t, angleDeg, kneeDr
     y: shoulder.y - 50 * Math.cos(torsoTilt) + 8 * Math.sin(torsoTilt),
   };
 
-  // Natural arms: mild shoulder swing and elbow flexion; wrists finish near
-  // the belt-line rather than acting like an implausible single straight rod.
+  // Arms hang alongside the trunk with a small natural elbow bend.
   const upperTilt = (8 + 12 * depth + 6 * kneeDrive) * RAD;
   const foreTilt = (-32 - 13 * depth - 6 * kneeDrive) * RAD;
   const elbow = {
@@ -518,45 +548,39 @@ function simulateLunge(elapsedMs, options, activeFaultIndex, t, angleDeg, kneeDr
   const set = (id, pt, visibility = 0.99) => {
     p[id] = { x: pt.x / W, y: pt.y / H, visibility };
   };
-  const near = [
+  for (const [i, pt] of [
     [23, hip], [25, frontKnee], [27, frontAnkle],
     [11, shoulder], [13, elbow], [15, wrist],
-  ];
-  for (const [i, pt] of near) set(i, pt);
-  // View-depth offset is applied to an ENTIRE chain, not individual joints.
-  // This preserves exact lengths on the far side as well as the near side.
-  const FAR = { x: 18, y: -3 };
+    [29, frontHeel], [31, frontToe],
+  ]) set(i, pt);
+  // Model opposite-side body joints as one rigid offset in this side view.
+  const FAR = { x: 16, y: -4 };
   for (const [i, pt] of [
     [24, hip], [26, rearKnee], [28, rearAnkle],
     [12, shoulder], [14, elbow], [16, wrist],
-  ]) {
-    set(i, { x: pt.x + FAR.x, y: pt.y + FAR.y }, 0.90);
-  }
-  // Fixed-length, planted feet (rear heel and front toes point forward).
-  // Translation of the rear foot into its *initial* stance is not animated.
-  const frontToe = { x: frontAnkle.x + 32, y: frontAnkle.y + 6 };
-  const frontHeel = { x: frontAnkle.x - 16, y: frontAnkle.y + 4 };
-  const rearToe = { x: rearAnkle.x + 30, y: rearAnkle.y + 6 };
-  const rearHeel = { x: rearAnkle.x - 16, y: rearAnkle.y + 4 };
-  set(29, frontHeel); set(31, frontToe);
-  set(30, { x: rearHeel.x + FAR.x, y: rearHeel.y + FAR.y }, 0.90);
-  set(32, { x: rearToe.x + FAR.x, y: rearToe.y + FAR.y }, 0.90);
+    [30, rearHeel], [32, rearToe],
+  ]) set(i, { x: pt.x + FAR.x, y: pt.y + FAR.y }, 0.90);
   set(0, head);
   return p;
 }
 
-// Full-body push-up with both contact points fixed. The elbows fold towards
-// the FEET (not past the hands). Hip sag is the exact two-circle IK branch of a
-// rigid torso and straight rigid legs, never a direct pixel displacement.
+// Full-body side-view push-up. Two PLANTED contacts and a continuous 4-bar
+// linkage define the movement: straight ankle-hip-shoulder body on a circle
+// about the toe, and a real two-bone elbow about a fixed wrist. The hand is
+// below the SHOULDER in full extension; elbows sweep toward the feet as the
+// shoulders descend. Sag modifies only the body linkage, never bone lengths.
 function simulatePushup(elapsedMs, options, activeFaultIndex, t, angleDeg, sagEnvelope) {
   const p = blank();
   const W = 960, H = 540;
-  const UPPER = 92, FOREARM = 88, TORSO = 145, THIGH = 115, SHIN = 110;
+  // Anatomical ratios: forearm slightly shorter than upper arm. The earlier
+  // 92/88 px arms relative to the 370 px body made the chest hover high even
+  // at 87° elbow flexion, visibly unlike the ground-facing movement.
+  const UPPER = 84, FOREARM = 76, TORSO = 145, THIGH = 115, SHIN = 110;
   const LEG = THIGH + SHIN;
   const BODY = LEG + TORSO;
   const RAD = Math.PI / 180;
-  const ankle = { x: 240, y: 445 }; // planted rear foot
-  const wrist = { x: 600, y: 460 }; // planted palm
+  const ankle = { x: 260, y: 459 }; // ball of the rear foot is planted
+  const wrist = { x: 600, y: 459 }; // palm is directly beneath the top shoulder
 
   // Exact distance between shoulder and wrist for the target elbow angle.
   const armReach = Math.sqrt(UPPER * UPPER + FOREARM * FOREARM -
@@ -594,7 +618,7 @@ function simulatePushup(elapsedMs, options, activeFaultIndex, t, angleDeg, sagEn
   for (const [id, pt] of near) set(id, pt);
   // Duplicate the far silhouette with ONE rigid view-depth transform for
   // every joint. This also fixes the original far-side limb-length drift.
-  const FAR = { x: -13, y: -9 };
+  const FAR = { x: -12, y: -5 };
   for (const [i, pt] of [[12, shoulder], [14, elbow], [16, wrist],
     [24, hip], [26, knee], [28, ankle]]) {
     set(i, { x: pt.x + FAR.x, y: pt.y + FAR.y }, 0.90);
@@ -873,7 +897,7 @@ const EXERCISE_GUIDES = Object.freeze({
   lunge: {
     standard: {
       title: '弓步 · 标准动作要领示范',
-      summary: '躯干垂直中立、前后双直角、前膝不冲脚尖、后膝悬垂点地。',
+      summary: '躯干中立、前膝稳定跟随脚尖方向、后脚以前掌支撑并自然提踵。',
       cues: [
         { label: '双腿前后直角', desc: '下潜至前腿大腿平行地面、后腿膝关节微屈悬垂，前后双膝各呈约 90° 夹角。' },
         { label: '躯干笔直垂直', desc: '脊柱保持中立向上延伸，核心肌群收紧，严禁前扑折腰或向后仰腹。' },
@@ -886,10 +910,10 @@ const EXERCISE_GUIDES = Object.freeze({
         tag: '常见错误 01',
         name: '前膝过度前冲（前移超脚尖代偿）',
         shortName: '膝盖前冲',
-        where: '下蹲时膝盖大幅度往前顶超过脚尖，脚后跟离地，躯干严重向前折扑。',
-        why: '髌骨关节受力过载，髌腱承受巨大的撕裂拉力，易诱发髌下脂肪垫炎或膝前绞锁疼痛。',
-        correction: '加大双脚前后步幅，下蹲时将重心垂直向下坐而非向前跪，使前侧小腿近乎垂直于地面。',
-        aiRule: 'AI 检测到前膝水平位移超出脚尖过多或躯干前倾角 > 35°，实时触发 knee_over_toes 姿态警报。'
+        where: '下潜时前膝伴随异常前移、身体重心前扑且躯干前倾；单纯膝盖轻微越过脚尖并不必然属于错误。',
+        why: '失去控制的前移会改变膝髋负荷分配，影响动作稳定性；是否适宜前移取决于个体踝背屈、步幅与训练目标。',
+        correction: '调整前后站距，前脚保持稳定着地，膝盖跟随脚尖方向，控制髋部向下沉并维持躯干中立。',
+        aiRule: '前膝明显超脚尖并伴随过度前倾、膝部前冲超过设定范围或躯干前倾 > 35° 时，触发 knee_over_toes 姿态警报（示范规则，并非医疗诊断）。'
       },
       {
         id: 'shallow_lunge',
@@ -1141,7 +1165,13 @@ function checkPostureFault(landmarks, exerciseId, side = '左侧', options = {})
     const facing = toePx && Math.abs(toePx.x - anklePx.x) > 4
       ? Math.sign(toePx.x - anklePx.x) : 1;
     const kneeForward = Math.max(0, (kneePx.x - anklePx.x) * facing);
-    if (kneeForward > 44 || torsoLean > 35) {
+    const toeOverrun = toePx ? (kneePx.x - toePx.x) * facing : -Infinity;
+    // Use the actual toe coordinate: the new anatomical shin reaches ~40 px
+    // forwards, just 8px past the planted toe, without a grotesque hip lurch.
+    // A knee slightly beyond the toe is not inherently a fault. To flag the
+    // lunge compensation we also require noticeably forward-leaning trunk,
+    // unless tibial travel is itself clearly excessive (>44 px).
+    if (kneeForward > 44 || (toeOverrun > 6 && torsoLean > 18) || torsoLean > 35) {
       return { code: 'knee_over_toes', message: '保持躯干笔直中立，前膝避免过度前冲超过脚尖', value: Math.round(Math.max(kneeForward, torsoLean)) };
     }
   } else if (exerciseId === 'pushup') {
@@ -1570,15 +1600,22 @@ function displayPose(landmarks, exercise) {
     for (const i of [12, 14, 16, 24, 26, 28, 30]) {
       if (has(i)) move(i, pose[i].x - 0.055, pose[i].y);
     }
-  } else if (exercise === 'squat' || exercise === 'lunge') {
-    // Spread the far-side silhouette without changing either side's lengths.
-    // Old independent offsets altered the shin and upper-arm pixel lengths.
+  } else if (exercise === 'squat') {
     for (const i of [12, 14, 16, 24, 26, 28, 30, 32]) {
       if (has(i)) move(i, pose[i].x + 0.028, pose[i].y);
     }
-  } else if (exercise === 'pushup') {
+  } else if (exercise === 'lunge') {
+    // v0.3.1 projected an extra 27 px of far-side separation on top of the
+    // simulator's 18 px; both torsos and arms formed a crossed diamond.
+    // 8 px extra is enough for a readable side silhouette without tangles.
     for (const i of [12, 14, 16, 24, 26, 28, 30, 32]) {
-      if (has(i)) move(i, pose[i].x - 0.035, pose[i].y);
+      if (has(i)) move(i, pose[i].x + 0.008, pose[i].y);
+    }
+  } else if (exercise === 'pushup') {
+    // Keep the near/far palms visually almost superimposed. The former -34px
+    // display shift made two far-side arms cross the straight trunk.
+    for (const i of [12, 14, 16, 24, 26, 28, 30, 32]) {
+      if (has(i)) move(i, pose[i].x - 0.005, pose[i].y);
     }
   }
   return pose;
@@ -1945,10 +1982,10 @@ function render() {
     ];
   } else if (ex === 'pushup') {
     bones = [
-      ['左大臂 (11-13)', 11, 13, 92.0],
-      ['左前臂 (13-15)', 13, 15, 88.0],
-      ['右大臂 (12-14)', 12, 14, 92.0],
-      ['右前臂 (14-16)', 14, 16, 88.0],
+      ['左大臂 (11-13)', 11, 13, 84.0],
+      ['左前臂 (13-15)', 13, 15, 76.0],
+      ['右大臂 (12-14)', 12, 14, 84.0],
+      ['右前臂 (14-16)', 14, 16, 76.0],
       ['左躯干 (11-23)', 11, 23, 145.0],
       ['右躯干 (12-24)', 12, 24, 145.0],
       ['左大腿 (23-25)', 23, 25, 115.0],

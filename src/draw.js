@@ -89,15 +89,22 @@ function displayPose(landmarks, exercise) {
     for (const i of [12, 14, 16, 24, 26, 28, 30]) {
       if (has(i)) move(i, pose[i].x - 0.055, pose[i].y);
     }
-  } else if (exercise === 'squat' || exercise === 'lunge') {
-    // Spread the far-side silhouette without changing either side's lengths.
-    // Old independent offsets altered the shin and upper-arm pixel lengths.
+  } else if (exercise === 'squat') {
     for (const i of [12, 14, 16, 24, 26, 28, 30, 32]) {
       if (has(i)) move(i, pose[i].x + 0.028, pose[i].y);
     }
-  } else if (exercise === 'pushup') {
+  } else if (exercise === 'lunge') {
+    // v0.3.1 projected an extra 27 px of far-side separation on top of the
+    // simulator's 18 px; both torsos and arms formed a crossed diamond.
+    // 8 px extra is enough for a readable side silhouette without tangles.
     for (const i of [12, 14, 16, 24, 26, 28, 30, 32]) {
-      if (has(i)) move(i, pose[i].x - 0.035, pose[i].y);
+      if (has(i)) move(i, pose[i].x + 0.008, pose[i].y);
+    }
+  } else if (exercise === 'pushup') {
+    // Keep the near/far palms visually almost superimposed. The former -34px
+    // display shift made two far-side arms cross the straight trunk.
+    for (const i of [12, 14, 16, 24, 26, 28, 30, 32]) {
+      if (has(i)) move(i, pose[i].x - 0.005, pose[i].y);
     }
   }
   return pose;

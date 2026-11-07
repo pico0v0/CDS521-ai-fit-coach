@@ -17,7 +17,7 @@ const BONE_SPECS = {
   pushup: [
     [23,25,115], [25,27,110], [24,26,115], [26,28,110],
     [11,23,145], [12,24,145],
-    [11,13,92], [13,15,88], [12,14,92], [14,16,88]
+    [11,13,84], [13,15,76], [12,14,84], [14,16,76]
   ]
 };
 const VARIANTS = [
@@ -72,14 +72,18 @@ for (const exercise of ['lunge', 'pushup']) {
   });
 }
 
-test('lunge: support ankles are planted, proper knee/toe direction and fault isolation', () => {
+test('lunge: front foot and rear toe are planted; heel pivots rigidly and faults remain isolated', () => {
   for (const options of VARIANTS) {
     const first = simulatePose(0, 'lunge', options);
     for (let ms=0;ms<=4700;ms+=5) {
       const p=simulatePose(ms, 'lunge',options);
-      for(const i of [27,28,29,30,31,32]) {
+      for(const i of [27,29,31,32]) {
         assert.deepEqual(p[i],first[i],`planted lunge joint ${i} moved at ${ms}`);
       }
+      // A human rear heel rises as the rear ankle rotates around the toe.
+      // Both ankle-to-toe and ankle-to-heel segments are rigid, not slidable.
+      assert.ok(Math.abs(DIST(p,28,32) - DIST(first,28,32)) < 1e-6);
+      assert.ok(Math.abs(DIST(p,28,30) - DIST(first,28,30)) < 1e-6);
     }
   }
   const healthy=simulatePose(2350,'lunge',{mode:'standard'});
@@ -129,4 +133,40 @@ test('pushup: quintic-squared sag envelope has negligible acceleration at fade b
     const ddy=pts[2].y-2*pts[1].y+pts[0].y;
     assert.ok(Math.hypot(ddx,ddy)<0.001,`hip acceleration breaks at ${instant}`);
   }
+});
+
+test('lunge: fault advances knee without lifting the pelvis or folding the torso into a dive', () => {
+  for (const difficulty of ['beginner','standard','advanced']) {
+    const base = simulatePose(0,'lunge',{mode:'fault', faultIndex:0, difficulty});
+    const peak = simulatePose(2350,'lunge',{mode:'fault', faultIndex:0, difficulty});
+    const hip = PIXEL(peak[23]), standingHip = PIXEL(base[23]);
+    const frontKnee = PIXEL(peak[25]), toe = PIXEL(peak[31]);
+    const shoulder = PIXEL(peak[11]);
+    const torsoTilt = Math.atan2(shoulder.x-hip.x,hip.y-shoulder.y)*180/Math.PI;
+    assert.ok(hip.y > standingHip.y + 25,
+      `pelvis MUST descend with knee drive (${difficulty}: ${hip.y} vs ${standingHip.y})`);
+    assert.ok(frontKnee.x > toe.x + 6 && frontKnee.x < toe.x + 14,
+      `modest knee travel beyond the toe, not a 100-px lurch (${difficulty})`);
+    assert.ok(torsoTilt > 15 && torsoTilt < 26,
+      `natural ~23° fault torso, not the old ~41° dive: ${torsoTilt}`);
+    assert.ok(PIXEL(peak[26]).y > (difficulty === 'beginner' ? 385 : 410),
+      'rear knee follows toward the floor rather than floating above the pelvis');
+  }
+});
+
+test('pushup: elbow reverses toward the feet, top palm below shoulder and straight body descends as one unit', () => {
+  const options={mode:'standard'};
+  const top=simulatePose(0,'pushup',options);
+  const low=simulatePose(2350,'pushup',options);
+  const shTop=PIXEL(top[11]), shLow=PIXEL(low[11]);
+  const elbow=PIXEL(low[13]), palm=PIXEL(low[15]);
+  const hipTop=PIXEL(top[23]), hipLow=PIXEL(low[23]);
+  assert.ok(Math.abs(shTop.x-palm.x) < 12, 'wrist must be vertically under top shoulder');
+  assert.ok(shLow.y-shTop.y > 40, 'upper body must lower visibly');
+  assert.ok(hipLow.y>hipTop.y+20, 'hips lower with the torso, no floating hips');
+  assert.ok(elbow.x < shLow.x - 45 && elbow.x < palm.x - 45,
+    'bent elbow must point back towards the heels');
+  const align=angleDegrees(...[11,23,27].map(i=>PIXEL(low[i])));
+  assert.ok(Math.abs(align-180)<1e-6, 'neutral plank remains exactly collinear');
+  assert.ok(shLow.y < palm.y - 95, 'shoulder remains above the support forearm');
 });
