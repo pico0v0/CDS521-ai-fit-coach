@@ -39,9 +39,12 @@ export async function resolveModelAssets() {
 }
 
 export async function createPoseLandmarker(options = {}) {
-  const timeoutMs = options.timeoutMs ?? 30000;
+  const timeoutMs = options.timeoutMs ?? 120000;
+  const onStatus = typeof options.onStatus === 'function' ? options.onStatus : () => {};
 
   const initPromise = (async () => {
+    const startTime = performance.now();
+    onStatus('正在载入 AI 姿态计算引擎核心组件…');
     modulePromise ||= (async () => {
       // 1. First priority: load from local self-hosted server bundle
       try {
@@ -70,10 +73,12 @@ export async function createPoseLandmarker(options = {}) {
     }
 
     const { FilesetResolver, PoseLandmarker } = visionModule;
+    onStatus('正在检查模型与 WebAssembly 引擎…');
     const { modelPath, wasmPath, isLocal } = await resolveModelAssets();
 
     let wasm;
     try {
+      onStatus('正在下载与初始化 WebAssembly 运行时（首次下载后将永久缓存）…');
       wasm = await FilesetResolver.forVisionTasks(wasmPath);
     } catch {
       try {
@@ -87,6 +92,7 @@ export async function createPoseLandmarker(options = {}) {
       }
     }
 
+    onStatus('正在载入离线骨骼姿态检测神经网络…');
     const detectorOptions = {
       baseOptions: { modelAssetPath: modelPath, delegate: 'CPU' },
       runningMode: 'VIDEO',
@@ -96,6 +102,9 @@ export async function createPoseLandmarker(options = {}) {
       minTrackingConfidence: 0.55
     };
     const detector = await PoseLandmarker.createFromOptions(wasm, detectorOptions);
+    const cost = Math.round(performance.now() - startTime);
+    console.info(`[MediaPipe] 模型加载成功，耗时 ${cost}ms，来源: ${isLocal ? '本地私有服务器' : '在线CDN'}`);
+
     return {
       detector,
       connections: PoseLandmarker.POSE_CONNECTIONS,
@@ -106,7 +115,7 @@ export async function createPoseLandmarker(options = {}) {
 
   const timeoutPromise = new Promise((_, reject) => {
     setTimeout(() => {
-      reject(new Error('模型资源加载超时（可能受校园网或远程连接限制），建议确认服务器模型文件完整，或使用独立的模拟演示模式。'));
+      reject(new Error('模型资源下载或初始化超时（已等待超过 2 分钟，当前网络速度可能较慢），建议保持网络畅通重试，或使用模拟演示模式。'));
     }, timeoutMs);
   });
 

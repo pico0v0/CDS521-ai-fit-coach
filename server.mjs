@@ -178,10 +178,12 @@ async function handleRequest(req, res) {
       throw new Error('Not a file');
     }
 
+    const isModelAsset = pathname.startsWith('/models/');
     const headers = {
       'Content-Type': contentType,
       'Content-Length': info.size,
-      'Cache-Control': 'no-cache',
+      'Cache-Control': isModelAsset ? 'public, max-age=31536000, immutable' : 'no-cache',
+      'Access-Control-Allow-Origin': '*',
       'X-Content-Type-Options': 'nosniff'
     };
 

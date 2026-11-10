@@ -700,7 +700,7 @@ async function begin(mode, file = null, options = {}) {
       if (run !== state.activeRunId) return;
 
       modelMessage('本地视频已就绪，正在加载姿态估计 AI 模型…');
-      const { detector, isLocalModel } = await createPoseLandmarker();
+      const { detector, isLocalModel } = await createPoseLandmarker({ onStatus: (msg) => modelMessage(msg) });
       if (run !== state.activeRunId) { detector.close(); return; }
       state.detector = detector;
 
@@ -781,8 +781,8 @@ async function begin(mode, file = null, options = {}) {
     if (!video) throw new Error('训练页面已关闭');
     video.srcObject = stream;
     await video.play();
-    modelMessage('摄像头已开启，正在加载 Google MediaPipe 模型…');
-    const { detector, isLocalModel } = await createPoseLandmarker();
+    modelMessage('摄像头已开启，正在加载 AI 姿态检测模型（首次下载约需 10-30 秒，完成后自动永久本地缓存）…');
+    const { detector, isLocalModel } = await createPoseLandmarker({ onStatus: (msg) => modelMessage(msg) });
     if (run !== state.activeRunId) { detector.close(); return; }
     state.detector = detector; state.modelReady = true;
     // Exclude model downloading time from the reported workout length.
@@ -1094,3 +1094,17 @@ window.addEventListener('keydown', event => {
 });
 window.addEventListener('beforeunload', stopRealtime);
 shell();
+
+// Idle prewarm model files into browser disk cache
+if (typeof window !== 'undefined') {
+  const warmUp = () => {
+    fetch('/models/tasks-vision.mjs', { cache: 'force-cache' }).catch(() => {});
+    fetch('/models/wasm/vision_wasm_internal.wasm', { cache: 'force-cache' }).catch(() => {});
+    fetch('/models/pose_landmarker_lite.task', { cache: 'force-cache' }).catch(() => {});
+  };
+  if ('requestIdleCallback' in window) {
+    window.requestIdleCallback(warmUp, { timeout: 3000 });
+  } else {
+    setTimeout(warmUp, 1500);
+  }
+}

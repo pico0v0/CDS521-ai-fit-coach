@@ -7,6 +7,9 @@
   <meta name="description" content="AI Fit Coach · 基于 MediaPipe 人体姿态识别的智能健身教练课程演示" />
   <title>AI Fit Coach — AI 智能健身教练</title>
   <link rel="stylesheet" href="/src/styles.css" />
+  <link rel="prefetch" href="/models/tasks-vision.mjs" as="script" />
+  <link rel="prefetch" href="/models/wasm/vision_wasm_internal.wasm" as="fetch" crossorigin="anonymous" />
+  <link rel="prefetch" href="/models/pose_landmarker_lite.task" as="fetch" crossorigin="anonymous" />
   <script type="module" src="/src/app.js"></script>
 </head>
 <body>
