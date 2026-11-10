@@ -39,14 +39,14 @@ const state = {
   fps: 0, latencyMs: 0, latencySumMs: 0, fpsFrames: 0, fpsLastTime: 0, totalInferredFrames: 0, inferFramesWindow: 0, currentHighlightJoints: null
 };
 let trainingNodes = null;
-const TRAINING_IDS = ['poseCanvas','repsCount','partialCount','angleValue','phaseStat','clock','targetDepthLabel','depthBar','depthPercent','activeSideBadge','stageHint'];
+const TRAINING_IDS = ['poseCanvas', 'repsCount', 'partialCount', 'angleValue', 'phaseStat', 'clock', 'targetDepthLabel', 'depthBar', 'depthPercent', 'activeSideBadge', 'stageHint'];
 const icons = {
-  home:'⌂', training:'◉', planner:'🥗', reports:'▥', about:'◇', camera:'▣', close:'×',
+  home: '⌂', training: '◉', planner: '🥗', reports: '▥', about: '◇', camera: '▣', close: '×',
 };
-const escapeText = (v) => String(v).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const escapeText = (v) => String(v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const int = n => String(Math.max(0, n | 0)).padStart(2, '0');
-const formatTime = sec => `${int(Math.floor(sec/60))}:${int(sec%60)}`;
-const formatDate = iso => {try {return new Date(iso).toLocaleString('zh-CN', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});}catch{return '未知日期';}};
+const formatTime = sec => `${int(Math.floor(sec / 60))}:${int(sec % 60)}`;
+const formatDate = iso => { try { return new Date(iso).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }); } catch { return '未知日期'; } };
 
 function shell() {
   root.innerHTML = `<div class="app-shell">
@@ -54,12 +54,12 @@ function shell() {
       <div class="brand"><div class="brand-icon">A<span>·</span></div><div><strong>AI FIT COACH</strong><small>VISION FITNESS LAB</small></div></div>
       <div class="nav-caption">WORKSPACE <span>01 / 05</span></div>
       <nav class="nav-list" aria-label="主导航">
-        ${[['home','工作台','⌂'],['training','实时训练','◉'],['planner','饮食与周计划','🥗'],['reports','训练报告','▦'],['about','项目说明','◇']].map(([view,name,symbol])=>`<button type="button" class="nav-btn ${state.view===view?'active':''}" data-view="${view}" aria-current="${state.view===view?'page':'false'}"><span class="nav-symbol">${symbol}</span><span>${name}</span>${view==='training'?'<span class="small-glow"></span>':''}</button>`).join('')}
+        ${[['home', '工作台', '⌂'], ['training', '实时训练', '◉'], ['planner', '饮食与周计划', '🥗'], ['reports', '训练报告', '▦'], ['about', '项目说明', '◇']].map(([view, name, symbol]) => `<button type="button" class="nav-btn ${state.view === view ? 'active' : ''}" data-view="${view}" aria-current="${state.view === view ? 'page' : 'false'}"><span class="nav-symbol">${symbol}</span><span>${name}</span>${view === 'training' ? '<span class="small-glow"></span>' : ''}</button>`).join('')}
       </nav>
       <div class="sidebar-bottom"><div class="device-icon">✦</div><div><strong>AI Foundations</strong><small>Course project · v0.1.0</small></div></div>
     </aside>
     <div class="workspace">
-      <header class="topbar"><div class="breadcrumb">AI FIT COACH <span>/</span> ${escapeText(({home:'概览',training:'实时训练',planner:'饮食与周计划',reports:'训练报告',about:'项目说明'})[state.view] || state.view)}</div><div class="topbar-right"><span class="status-dot"></span> 本地运行 · 隐私优先 <span class="top-avatar">AI</span></div></header>
+      <header class="topbar"><div class="breadcrumb">AI FIT COACH <span>/</span> ${escapeText(({ home: '概览', training: '实时训练', planner: '饮食与周计划', reports: '训练报告', about: '项目说明' })[state.view] || state.view)}</div><div class="topbar-right"><span class="status-dot"></span> 本地运行 · 隐私优先 <span class="top-avatar">AI</span></div></header>
       <main id="page-content" tabindex="-1"></main>
       <footer class="footer"><span>© AI FIT COACH / COURSE DEMO</span><span>非医疗工具 · 不进行损伤诊断</span></footer>
     </div>
@@ -81,12 +81,12 @@ function setView(view) {
   if (state.view === 'training' && view !== 'training' && state.mode) finishSession();
   state.view = view;
   shell();
-  window.scrollTo({top:0, behavior:'instant'});
+  window.scrollTo({ top: 0, behavior: 'instant' });
 }
 function latest() { return loadSessions()[0] || null; }
 function homePage() {
   const sessions = loadSessions();
-  const total = sessions.reduce((a,s)=>a+s.count,0);
+  const total = sessions.reduce((a, s) => a + s.count, 0);
   return `<div class="page">
     <section class="hero">
       <div class="hero-copy"><div class="eyebrow"><span class="eyebrow-line"></span> COMPUTER VISION × FITNESS × LLM</div>
@@ -122,8 +122,8 @@ function homePage() {
 
     <div class="section-label">概览数据 <span>OVERVIEW / LOCAL DATA</span></div>
     <section class="metrics">
-      <div class="metric-card"><span>累计训练</span><strong>${sessions.length.toString().padStart(2,'0')} <small>次</small></strong><div class="metric-foot">保存在本机浏览器</div></div>
-      <div class="metric-card"><span>累计有效动作</span><strong>${total.toString().padStart(2,'0')} <small>次</small></strong><div class="metric-foot">基于当前演示规则</div></div>
+      <div class="metric-card"><span>累计训练</span><strong>${sessions.length.toString().padStart(2, '0')} <small>次</small></strong><div class="metric-foot">保存在本机浏览器</div></div>
+      <div class="metric-card"><span>累计有效动作</span><strong>${total.toString().padStart(2, '0')} <small>次</small></strong><div class="metric-foot">基于当前演示规则</div></div>
       <div class="metric-card"><span>已支持视觉动作</span><strong>05 <small>种</small></strong><div class="metric-foot">深蹲 / 弯举 / 开合跳 / 弓步 / 俯卧撑</div></div>
       <div class="metric-card accent-card"><span>规划 + 视觉</span><strong class="metric-word">双脑驱动</strong><div class="metric-foot">LLM 规划 + 计算机视觉跟练</div></div>
     </section>
@@ -189,8 +189,8 @@ function renderDemoGuideHTML() {
         </div>
         <div class="guide-footer-tip">
           ${isDemoActive && state.demoType === 'standard'
-            ? '▶ 正在以标准生物力学轨迹循环演示：大腿下潜达标、躯干稳定、双线平行，每次动作完整计入有效次数。'
-            : '💡 提示：点击上方「▷ 正确姿势示范」按钮可随时开启纯净标准动作合成骨架演示。'}
+        ? '▶ 正在以标准生物力学轨迹循环演示：大腿下潜达标、躯干稳定、双线平行，每次动作完整计入有效次数。'
+        : '💡 提示：点击上方「▷ 正确姿势示范」按钮可随时开启纯净标准动作合成骨架演示。'}
         </div>
       </div>
     ` : `
@@ -237,8 +237,8 @@ function renderDemoGuideHTML() {
 
             <div class="guide-footer-tip">
               ${isDemoActive && state.demoType === 'fault'
-                ? `▶ 正在模拟「${escapeText(curFault.shortName)}」错误动作：请观察上方骨架关键点异常轨迹与右侧 AI 状态机警报。`
-                : '💡 提示：点击上方「⚠ 常见错误演示」按钮可模拟此类代偿动作，便于观察系统如何识别并拦截错误。'}
+        ? `▶ 正在模拟「${escapeText(curFault.shortName)}」错误动作：请观察上方骨架关键点异常轨迹与右侧 AI 状态机警报。`
+        : '💡 提示：点击上方「⚠ 常见错误演示」按钮可模拟此类代偿动作，便于观察系统如何识别并拦截错误。'}
             </div>
           </div>
         ` : ''}
@@ -267,7 +267,7 @@ function trainingPage() {
       <div id="demoGuideSection" class="demo-guide-section">${renderDemoGuideHTML()}</div>
     </section><aside class="analysis-column">
       <div class="module-heading"><div><span class="section-index">02</span><strong>动作设置与分析</strong></div><span class="mini-sub">REAL-TIME</span></div>
-      <div class="settings-card"><div class="input-label">选择动作 <span>EXERCISE</span></div><div class="exercise-switch"><button type="button" data-exercise="squat" class="exercise-btn ${state.exercise==='squat'?'selected':''}">深蹲 <small>SQUAT</small></button><button type="button" data-exercise="curl" class="exercise-btn ${state.exercise==='curl'?'selected':''}">弯举 <small>CURL</small></button><button type="button" data-exercise="jumping_jack" class="exercise-btn ${state.exercise==='jumping_jack'?'selected':''}">开合跳 <small>JACK</small></button><button type="button" data-exercise="lunge" class="exercise-btn ${state.exercise==='lunge'?'selected':''}">弓步 <small>LUNGE</small></button><button type="button" data-exercise="pushup" class="exercise-btn ${state.exercise==='pushup'?'selected':''}">俯卧撑 <small>PUSHUP</small></button></div><div class="select-grid"><label>训练目标<select id="goalInput"><option value="habit" ${state.goal==='habit'?'selected':''}>培养习惯</option><option value="strength" ${state.goal==='strength'?'selected':''}>力量训练</option><option value="endurance" ${state.goal==='endurance'?'selected':''}>提高耐力</option></select></label><label>目前疲劳<select id="fatigueInput"><option value="normal" ${state.fatigue==='normal'?'selected':''}>一般</option><option value="low" ${state.fatigue==='low'?'selected':''}>较低</option><option value="high" ${state.fatigue==='high'?'selected':''}>较高</option></select></label></div><div class="select-grid" style="margin-top:10px"><label>动作难度<select id="difficultySelect"><option value="beginner" ${state.difficulty==='beginner'?'selected':''}>初学 (幅度阈值较低)</option><option value="standard" ${state.difficulty==='standard'?'selected':''}>标准 (推荐)</option><option value="advanced" ${state.difficulty==='advanced'?'selected':''}>进阶 (更高幅度要求)</option></select></label><label>目标次数<select id="targetRepsSelect"><option value="0" ${state.targetReps===0?'selected':''}>自由练习 (不限)</option><option value="5" ${state.targetReps===5?'selected':''}>5 次 (体验组)</option><option value="10" ${state.targetReps===10?'selected':''}>10 次 (标准组)</option><option value="15" ${state.targetReps===15?'selected':''}>15 次 (耐力组)</option></select></label></div><div class="minor-options"><label class="voice-option"><input type="checkbox" id="voiceToggle" ${state.voice?'checked':''}> <span>语音反馈</span><button type="button" class="btn-text-test" data-action="test-voice" title="测试播报">试听 🔊</button></label><label>摄像头 <select id="facingSelect"><option value="user" ${state.facing==='user'?'selected':''}>前置</option><option value="environment" ${state.facing==='environment'?'selected':''}>后置</option></select></label></div></div>
+      <div class="settings-card"><div class="input-label">选择动作 <span>EXERCISE</span></div><div class="exercise-switch"><button type="button" data-exercise="squat" class="exercise-btn ${state.exercise === 'squat' ? 'selected' : ''}">深蹲 <small>SQUAT</small></button><button type="button" data-exercise="curl" class="exercise-btn ${state.exercise === 'curl' ? 'selected' : ''}">弯举 <small>CURL</small></button><button type="button" data-exercise="jumping_jack" class="exercise-btn ${state.exercise === 'jumping_jack' ? 'selected' : ''}">开合跳 <small>JACK</small></button><button type="button" data-exercise="lunge" class="exercise-btn ${state.exercise === 'lunge' ? 'selected' : ''}">弓步 <small>LUNGE</small></button><button type="button" data-exercise="pushup" class="exercise-btn ${state.exercise === 'pushup' ? 'selected' : ''}">俯卧撑 <small>PUSHUP</small></button></div><div class="select-grid"><label>训练目标<select id="goalInput"><option value="habit" ${state.goal === 'habit' ? 'selected' : ''}>培养习惯</option><option value="strength" ${state.goal === 'strength' ? 'selected' : ''}>力量训练</option><option value="endurance" ${state.goal === 'endurance' ? 'selected' : ''}>提高耐力</option></select></label><label>目前疲劳<select id="fatigueInput"><option value="normal" ${state.fatigue === 'normal' ? 'selected' : ''}>一般</option><option value="low" ${state.fatigue === 'low' ? 'selected' : ''}>较低</option><option value="high" ${state.fatigue === 'high' ? 'selected' : ''}>较高</option></select></label></div><div class="select-grid" style="margin-top:10px"><label>动作难度<select id="difficultySelect"><option value="beginner" ${state.difficulty === 'beginner' ? 'selected' : ''}>初学 (幅度阈值较低)</option><option value="standard" ${state.difficulty === 'standard' ? 'selected' : ''}>标准 (推荐)</option><option value="advanced" ${state.difficulty === 'advanced' ? 'selected' : ''}>进阶 (更高幅度要求)</option></select></label><label>目标次数<select id="targetRepsSelect"><option value="0" ${state.targetReps === 0 ? 'selected' : ''}>自由练习 (不限)</option><option value="5" ${state.targetReps === 5 ? 'selected' : ''}>5 次 (体验组)</option><option value="10" ${state.targetReps === 10 ? 'selected' : ''}>10 次 (标准组)</option><option value="15" ${state.targetReps === 15 ? 'selected' : ''}>15 次 (耐力组)</option></select></label></div><div class="minor-options"><label class="voice-option"><input type="checkbox" id="voiceToggle" ${state.voice ? 'checked' : ''}> <span>语音反馈</span><button type="button" class="btn-text-test" data-action="test-voice" title="测试播报">试听 🔊</button></label><label>摄像头 <select id="facingSelect"><option value="user" ${state.facing === 'user' ? 'selected' : ''}>前置</option><option value="environment" ${state.facing === 'environment' ? 'selected' : ''}>后置</option></select></label></div></div>
       <div class="stat-large"><div><span class="stat-label">有效次数</span><div class="big-number" id="repsCount">00</div></div><div class="stat-side"><div><span>进行时间</span><strong id="clock">00:00</strong></div><div><span>未达演示幅度</span><strong id="partialCount">00</strong></div></div></div>
       <div class="stat-row"><div class="stat-small"><span>关节角度 <small>2D EST.</small></span><strong id="angleStat"><span id="angleValue">--</span> <small>°</small></strong></div><div class="stat-small"><span>动作状态</span><strong id="phaseStat" class="phase-text">等待站稳</strong></div></div>
       <div class="depth-card"><div class="depth-head"><span>动作深度完成度</span><strong id="depthPercent">0%</strong></div><div class="depth-meter-track"><div class="depth-meter-bar" id="depthBar"></div></div><div class="depth-labels"><span>起始准备 (${ex.extended}°)</span><span id="activeSideBadge" class="side-badge">待识别肢体</span><span id="targetDepthLabel">达标幅度 (${state.analyzer.exercise.full}°)</span></div></div>
@@ -317,23 +317,23 @@ function plannerPage() {
 function reportsPage() {
   const sessions = loadSessions();
   const current = state.lastSession || latest();
-  const totalCount = sessions.reduce((a,s)=>a+s.count,0);
-  const mean = sessions.length ? Math.round(totalCount/sessions.length) : 0;
+  const totalCount = sessions.reduce((a, s) => a + s.count, 0);
+  const mean = sessions.length ? Math.round(totalCount / sessions.length) : 0;
   const chart = sessions.slice(0, 8).reverse();
-  const max = Math.max(...chart.map(s=>s.count), 1);
+  const max = Math.max(...chart.map(s => s.count), 1);
   const maeStats = computeMaeStats(sessions);
 
   return `<div class="page"><div class="page-heading"><div><div class="eyebrow">SESSION REVIEW / LOCAL RECORDS</div><h2>训练报告 <span>PROGRESS TRACKER</span></h2><p>只在浏览器本地保存次数等统计信息，不保存摄像头视频。</p></div><button class="btn btn-secondary" data-action="open-training">+ 新训练</button></div>
-    <section class="report-metrics"><article><span>训练记录</span><strong>${sessions.length}</strong><small>SESSIONS</small></article><article><span>累计有效次数</span><strong>${totalCount}</strong><small>REPS</small></article><article><span>平均每次记录</span><strong>${mean}</strong><small>REPS / SESSION</small></article><article><span>真实 AI 对照 MAE</span>${maeStats.realMae !== null ? `<strong style="color:${maeStats.realMae<=0.5?'#86efac':'#fde047'}">${maeStats.realMae.toFixed(2)}</strong><small>REAL AI MAE (N=${maeStats.realCount})</small>` : `<strong style="font-size:12px;color:#94a3b8;line-height:2.4">暂无有效真人对照数据</strong><small>需真实AI实测 + 人工核验</small>`}</article>${maeStats.demoCount > 0 ? `<article><span>模拟算法回归误差</span><strong style="color:#cbd5e1">${maeStats.demoMae.toFixed(2)}</strong><small>SIMULATION (N=${maeStats.demoCount}, 非AI)</small></article>` : ''}</section>
+    <section class="report-metrics"><article><span>训练记录</span><strong>${sessions.length}</strong><small>SESSIONS</small></article><article><span>累计有效次数</span><strong>${totalCount}</strong><small>REPS</small></article><article><span>平均每次记录</span><strong>${mean}</strong><small>REPS / SESSION</small></article><article><span>真实 AI 对照 MAE</span>${maeStats.realMae !== null ? `<strong style="color:${maeStats.realMae <= 0.5 ? '#86efac' : '#fde047'}">${maeStats.realMae.toFixed(2)}</strong><small>REAL AI MAE (N=${maeStats.realCount})</small>` : `<strong style="font-size:12px;color:#94a3b8;line-height:2.4">暂无有效真人对照数据</strong><small>需真实AI实测 + 人工核验</small>`}</article>${maeStats.demoCount > 0 ? `<article><span>模拟算法回归误差</span><strong style="color:#cbd5e1">${maeStats.demoMae.toFixed(2)}</strong><small>SIMULATION (N=${maeStats.demoCount}, 非AI)</small></article>` : ''}</section>
     <div class="report-grid"><section class="panel"><div class="panel-heading"><h3>最近一次训练</h3><span>LATEST SESSION</span></div>
       ${current ? (() => {
-        const curErr = deriveVerifiedAbsError(current);
-        return `<div class="latest-title">${escapeText(EXERCISES[current.exercise]?.name || current.exercise)} <span class="report-chip ${current.mode==='demo'?'demo-chip':(current.mode==='video'?'video-chip':'')}">${current.mode==='demo'?'模拟数据':(current.mode==='video'?'本地视频AI':(current.trackedFrames?'真实摄像头':'摄像头（未跟踪到人体）'))}</span></div><div class="latest-date">${formatDate(current.startedAt)}</div><div class="session-numbers"><div><strong>${current.count}</strong><small>有效次数</small></div><div><strong>${current.partialCount}</strong><small>未达幅度</small></div><div><strong>${(current.faultCounts?.trunk_lean || 0) + (current.faultCounts?.arm_swing || 0) + (current.faultCounts?.arm_asymmetry || 0)}</strong><small>姿态提示</small></div>${curErr !== null ? `<div><strong>${current.manualCount}</strong><small>人工核验</small></div><div><strong style="color:${curErr===0?'#86efac':'#f59e0b'}">${curErr}</strong><small>绝对误差</small></div>` : ''}<div><strong>${formatTime(current.durationSeconds)}</strong><small>训练时长</small></div></div><div class="advice-box"><span>✦ 个性化建议 · 规则模板</span><p>${escapeText(makeAdvice(current, current.goal || state.goal, current.fatigue || state.fatigue))}</p></div>`;
-      })() : `<div class="empty-state"><span>◎</span><h3>暂无训练记录</h3><p>进入训练页，开启真实摄像头或模拟演示，结束训练后会自动生成报告。</p><button class="btn btn-primary" data-action="open-training">立即开始 →</button></div>`}
-    </section><section class="panel"><div class="panel-heading"><h3>最近训练次数</h3><span>LAST 8 SESSIONS</span></div><div class="chart-wrap">${chart.length ? `<div class="bar-chart">${chart.map((s,i)=>`<div class="bar-cell"><span>${s.count}</span><div class="bar ${s.mode==='demo'?'bar-sim':(s.mode==='video'?'bar-video':'')}" style="height:${Math.max(5, Math.round(s.count/max*185))}px"></div><small>${i+1}</small></div>`).join('')}</div><div class="legend"><span class="legend-dot"></span>实时AI <span class="legend-dot dot-video"></span>视频AI <span class="legend-dot sim"></span>模拟</div>` : `<div class="empty-chart">暂无数据，请先完成训练</div>`}</div></section></div>
-    <section class="panel history-panel"><div class="panel-heading"><h3>历史记录</h3><div class="history-actions"><button class="btn btn-sm btn-outline" data-action="export-csv" ${sessions.length?'':'disabled'} title="导出用于 Excel 对照分析的 CSV 表格">⤓ 导出 CSV</button><button class="btn btn-sm btn-outline" data-action="export-json" ${sessions.length?'':'disabled'} title="导出完整 JSON 数据">⤓ 导出 JSON</button><button class="text-danger" data-action="clear-history" ${sessions.length?'':'disabled'}>清空记录</button></div></div><div class="history-table"><div class="history-head"><span>训练日期</span><span>动作</span><span>模式</span><span>系统有效</span><span>人工/误差</span><span>用时</span></div>${sessions.length ? sessions.map(s => {
+      const curErr = deriveVerifiedAbsError(current);
+      return `<div class="latest-title">${escapeText(EXERCISES[current.exercise]?.name || current.exercise)} <span class="report-chip ${current.mode === 'demo' ? 'demo-chip' : (current.mode === 'video' ? 'video-chip' : '')}">${current.mode === 'demo' ? '模拟数据' : (current.mode === 'video' ? '本地视频AI' : (current.trackedFrames ? '真实摄像头' : '摄像头（未跟踪到人体）'))}</span></div><div class="latest-date">${formatDate(current.startedAt)}</div><div class="session-numbers"><div><strong>${current.count}</strong><small>有效次数</small></div><div><strong>${current.partialCount}</strong><small>未达幅度</small></div><div><strong>${(current.faultCounts?.trunk_lean || 0) + (current.faultCounts?.arm_swing || 0) + (current.faultCounts?.arm_asymmetry || 0)}</strong><small>姿态提示</small></div>${curErr !== null ? `<div><strong>${current.manualCount}</strong><small>人工核验</small></div><div><strong style="color:${curErr === 0 ? '#86efac' : '#f59e0b'}">${curErr}</strong><small>绝对误差</small></div>` : ''}<div><strong>${formatTime(current.durationSeconds)}</strong><small>训练时长</small></div></div><div class="advice-box"><span>✦ 个性化建议 · 规则模板</span><p>${escapeText(makeAdvice(current, current.goal || state.goal, current.fatigue || state.fatigue))}</p></div>`;
+    })() : `<div class="empty-state"><span>◎</span><h3>暂无训练记录</h3><p>进入训练页，开启真实摄像头或模拟演示，结束训练后会自动生成报告。</p><button class="btn btn-primary" data-action="open-training">立即开始 →</button></div>`}
+    </section><section class="panel"><div class="panel-heading"><h3>最近训练次数</h3><span>LAST 8 SESSIONS</span></div><div class="chart-wrap">${chart.length ? `<div class="bar-chart">${chart.map((s, i) => `<div class="bar-cell"><span>${s.count}</span><div class="bar ${s.mode === 'demo' ? 'bar-sim' : (s.mode === 'video' ? 'bar-video' : '')}" style="height:${Math.max(5, Math.round(s.count / max * 185))}px"></div><small>${i + 1}</small></div>`).join('')}</div><div class="legend"><span class="legend-dot"></span>实时AI <span class="legend-dot dot-video"></span>视频AI <span class="legend-dot sim"></span>模拟</div>` : `<div class="empty-chart">暂无数据，请先完成训练</div>`}</div></section></div>
+    <section class="panel history-panel"><div class="panel-heading"><h3>历史记录</h3><div class="history-actions"><button class="btn btn-sm btn-outline" data-action="export-csv" ${sessions.length ? '' : 'disabled'} title="导出用于 Excel 对照分析的 CSV 表格">⤓ 导出 CSV</button><button class="btn btn-sm btn-outline" data-action="export-json" ${sessions.length ? '' : 'disabled'} title="导出完整 JSON 数据">⤓ 导出 JSON</button><button class="text-danger" data-action="clear-history" ${sessions.length ? '' : 'disabled'}>清空记录</button></div></div><div class="history-table"><div class="history-head"><span>训练日期</span><span>动作</span><span>模式</span><span>系统有效</span><span>人工/误差</span><span>用时</span></div>${sessions.length ? sessions.map(s => {
       const sErr = deriveVerifiedAbsError(s);
-      return `<div class="history-row"><span>${formatDate(s.startedAt)}</span><span>${escapeText(EXERCISES[s.exercise]?.name || s.exercise)}</span><span>${s.mode==='demo'?'模拟':(s.mode==='video'?'视频AI':'实时')}</span><strong>${s.count}</strong><span>${sErr !== null ? `${s.manualCount} / 误${sErr}${s.mode==='demo'?'(模)':''}` : '--'}</span><span>${formatTime(s.durationSeconds)}</span></div>`;
+      return `<div class="history-row"><span>${formatDate(s.startedAt)}</span><span>${escapeText(EXERCISES[s.exercise]?.name || s.exercise)}</span><span>${s.mode === 'demo' ? '模拟' : (s.mode === 'video' ? '视频AI' : '实时')}</span><strong>${s.count}</strong><span>${sErr !== null ? `${s.manualCount} / 误${sErr}${s.mode === 'demo' ? '(模)' : ''}` : '--'}</span><span>${formatTime(s.durationSeconds)}</span></div>`;
     }).join('') : '<p class="empty-records">暂无记录</p>'}</div></section>
     <div class="subtle-warning">注意：模拟模式生成的记录会明确标注为「模拟」，不可用作真实 AI 识别准确率实验数据。</div>
   </div>`;
@@ -349,9 +349,9 @@ function refreshModeUI() {
   const pill = document.querySelector('#modePill');
   pill.textContent = state.mode === 'demo' ? (state.demoType === 'fault' ? '● 模拟错误演示 · 非 AI' : '● 模拟标准示范 · 非 AI')
     : state.mode === 'video' ? (state.modelReady ? '● 本地视频 · 真实 AI 识别' : '◌ AI 模型加载中')
-    : state.mode === 'camera' ? (state.modelReady ? '● 真实 AI 识别' : '◌ AI 模型加载中')
-    : '● 等待开始';
-  pill.className = `mode-pill ${state.mode==='demo'?(state.demoType==='fault'?'pill-fault':'pill-demo'):''} ${(state.mode==='camera'||state.mode==='video')?'pill-live':''}`;
+      : state.mode === 'camera' ? (state.modelReady ? '● 真实 AI 识别' : '◌ AI 模型加载中')
+        : '● 等待开始';
+  pill.className = `mode-pill ${state.mode === 'demo' ? (state.demoType === 'fault' ? 'pill-fault' : 'pill-demo') : ''} ${(state.mode === 'camera' || state.mode === 'video') ? 'pill-live' : ''}`;
   const startCamBtn = document.querySelector('#startCamera');
   if (startCamBtn) {
     startCamBtn.disabled = !!state.mode;
@@ -393,7 +393,7 @@ function refreshModeUI() {
       endBtn.className = 'btn btn-danger';
     }
   }
-  document.querySelectorAll('[data-exercise]').forEach(b=>b.disabled=!!state.mode);
+  document.querySelectorAll('[data-exercise]').forEach(b => b.disabled = !!state.mode);
   document.querySelector('#facingSelect').disabled = !!state.mode;
   const diffSelect = document.querySelector('#difficultySelect');
   const targetSelect = document.querySelector('#targetRepsSelect');
@@ -402,8 +402,8 @@ function refreshModeUI() {
   document.querySelector('#stageIndicator').textContent = state.mode === 'demo'
     ? (state.demoType === 'fault' ? 'FAULT DEMO' : 'STANDARD')
     : state.mode === 'video' ? (state.modelReady ? 'VIDEO AI' : 'LOADING MODEL')
-    : state.mode === 'camera' ? (state.modelReady ? 'AI CAMERA' : 'LOADING MODEL')
-    : 'STANDBY';
+      : state.mode === 'camera' ? (state.modelReady ? 'AI CAMERA' : 'LOADING MODEL')
+        : 'STANDBY';
   const perfTag = document.querySelector('#perfIndicator');
   if (perfTag) {
     if (state.mode && state.renderFps !== undefined) {
@@ -483,7 +483,7 @@ function playChime(isGoal = false) {
       osc.connect(gain); gain.connect(ctx.destination);
       osc.start(now); osc.stop(now + 0.35);
     }
-  } catch {}
+  } catch { }
 }
 
 function onResult(landmarks, time) {
@@ -592,7 +592,7 @@ function renderFrame(now) {
         depthProgress: snapshot?.progress ?? 0
       });
     } catch (error) {
-      inform(`姿态分析暂时失败：${String(error.message || error).slice(0,120)}`, 'warning');
+      inform(`姿态分析暂时失败：${String(error.message || error).slice(0, 120)}`, 'warning');
       console.error('Pose inference error', error);
     }
   }
@@ -602,8 +602,8 @@ function stopRealtime() {
   state.activeRunId++;
   if (state.frame) cancelAnimationFrame(state.frame);
   state.frame = 0;
-  if (state.stream) { state.stream.getTracks().forEach(track=>track.stop()); state.stream=null; }
-  if (state.detector) { try { state.detector.close(); } catch {} state.detector=null; }
+  if (state.stream) { state.stream.getTracks().forEach(track => track.stop()); state.stream = null; }
+  if (state.detector) { try { state.detector.close(); } catch { } state.detector = null; }
   if (state.videoUrl) { URL.revokeObjectURL(state.videoUrl); state.videoUrl = null; }
   state.videoFile = null;
   const video = document.querySelector('#liveVideo');
@@ -771,9 +771,11 @@ async function begin(mode, file = null, options = {}) {
       throw new Error('移动设备在非安全上下文（局域网 HTTP）下会禁用摄像头。建议使用 localhost、开启 HTTPS、使用「本地视频评测」模式，或在手机 Chrome 设置 chrome://flags/#unsafely-treat-insecure-origin-as-secure。');
     }
     if (!navigator.mediaDevices?.getUserMedia) throw new Error('当前浏览器环境不支持摄像头访问，请在 localhost 或 HTTPS 安全上下文中打开。');
-    const stream = await navigator.mediaDevices.getUserMedia({ audio:false,
-      video:{ facingMode:{ ideal:state.facing }, width:{ideal:960}, height:{ideal:540}, frameRate:{ideal:24} } });
-    if (run !== state.activeRunId) { stream.getTracks().forEach(t=>t.stop()); return; }
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { facingMode: { ideal: state.facing }, width: { ideal: 960 }, height: { ideal: 540 }, frameRate: { ideal: 24 } }
+    });
+    if (run !== state.activeRunId) { stream.getTracks().forEach(t => t.stop()); return; }
     state.stream = stream;
     const video = document.querySelector('#liveVideo');
     if (!video) throw new Error('训练页面已关闭');
@@ -790,12 +792,12 @@ async function begin(mode, file = null, options = {}) {
     modelMessage(`${sourceText}请根据机位指引调整身体位置。`, 'success');
     inform('模型就绪，站稳后进行完整动作。单人侧面机位效果通常更稳定。');
     const stage = document.querySelector('#cameraStage');
-    stage?.classList.toggle('mirror', state.facing==='user');
+    stage?.classList.toggle('mirror', state.facing === 'user');
     state.frame = requestAnimationFrame(renderFrame);
   } catch (error) {
     if (run !== state.activeRunId) return;
     console.error('Camera / MediaPipe startup failure', error);
-    stopRealtime(); state.mode=null; state.paused=false; state.modelReady=false;
+    stopRealtime(); state.mode = null; state.paused = false; state.modelReady = false;
     refreshModeUI();
     modelMessage(`真实 AI 启动失败：${String(error.message || error)}。可检查网络、权限后重试，或使用独立的模拟模式。`, 'error');
     inform('摄像头或模型无法启动。请检查权限与网络。模拟模式不等同于 AI 推理。', 'warning');
@@ -830,19 +832,19 @@ function finishSession(manualCount = null) {
   const snapshot = state.analyzer.snapshot();
   const hasManual = Number.isInteger(manualCount) && manualCount >= 0;
   const record = {
-    id: `${state.startWall}-${Math.round(Math.random()*100000)}`,
+    id: `${state.startWall}-${Math.round(Math.random() * 100000)}`,
     startedAt: new Date(state.startWall).toISOString(),
     exercise: state.exercise, mode: state.mode,
     count: snapshot.count, partialCount: snapshot.partialCount,
     durationSeconds: seconds, goal: state.goal, fatigue: state.fatigue,
     trackedFrames: (state.mode === 'camera' || state.mode === 'video') ? state.trackedFrames : 0,
     inferredFrames: (state.mode === 'camera' || state.mode === 'video') ? (state.totalInferredFrames || 0) : 0,
-    warningCount: state.warningLogs.filter(e=>e.type==='warning').length,
+    warningCount: state.warningLogs.filter(e => e.type === 'warning').length,
     faultCounts: snapshot.faultCounts,
     manualCount: hasManual ? manualCount : null,
     absError: hasManual ? Math.abs(snapshot.count - manualCount) : null
   };
-  stopRealtime(); state.mode=null; state.paused=false; state.modelReady=false;
+  stopRealtime(); state.mode = null; state.paused = false; state.modelReady = false;
   saveSession(record); state.lastSession = record;
   updateDemoGuideUI();
   return record;
@@ -851,7 +853,7 @@ function toast(message) {
   const element = document.querySelector('#toast'); if (!element) return;
   element.textContent = message; element.classList.add('show');
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(()=>element.classList.remove('show'),3500);
+  toast.timer = setTimeout(() => element.classList.remove('show'), 3500);
   if (toast.timer?.unref) toast.timer.unref();
 }
 
@@ -869,7 +871,7 @@ document.addEventListener('click', async event => {
   }
   const action = event.target.closest('[data-action]')?.dataset.action;
   if (!action) return;
-  switch(action) {
+  switch (action) {
     case 'open-training': setView('training'); break;
     case 'open-planner': setView('planner'); break;
     case 'reload-planner': {
@@ -1022,7 +1024,7 @@ document.addEventListener('click', async event => {
             }
           }
         }
-      } catch {}
+      } catch { }
       finishSession(manualCount);
       setView('reports');
       break;
@@ -1043,7 +1045,7 @@ document.addEventListener('click', async event => {
       const sessions = loadSessions();
       if (!sessions.length) { toast('暂无记录可导出'); break; }
       const csv = exportSessionsCSV(sessions);
-      downloadFile(csv, `aifit-sessions-${new Date().toISOString().slice(0,10)}.csv`, 'text/csv;charset=utf-8;');
+      downloadFile(csv, `aifit-sessions-${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv;charset=utf-8;');
       toast('已导出实验数据 CSV 表格');
       break;
     }
@@ -1051,33 +1053,33 @@ document.addEventListener('click', async event => {
       const sessions = loadSessions();
       if (!sessions.length) { toast('暂无记录可导出'); break; }
       const json = exportSessionsJSON(sessions);
-      downloadFile(json, `aifit-sessions-${new Date().toISOString().slice(0,10)}.json`, 'application/json');
+      downloadFile(json, `aifit-sessions-${new Date().toISOString().slice(0, 10)}.json`, 'application/json');
       toast('已导出实验数据 JSON');
       break;
     }
     case 'clear-history':
       if (window.confirm('确定清空本机所有训练记录吗？这个操作不能撤销。')) {
-        clearSessions(); state.lastSession=null; renderPage(); toast('本机记录已清空');
+        clearSessions(); state.lastSession = null; renderPage(); toast('本机记录已清空');
       } break;
   }
 });
-document.addEventListener('change', event=>{
-  const id=event.target.id; const value=event.target.value;
-  if(id==='goalInput') state.goal=value;
-  if(id==='fatigueInput') state.fatigue=value;
-  if(id==='voiceToggle') state.voice=event.target.checked;
-  if(id==='facingSelect') state.facing=value;
-  if(id==='difficultySelect') {
+document.addEventListener('change', event => {
+  const id = event.target.id; const value = event.target.value;
+  if (id === 'goalInput') state.goal = value;
+  if (id === 'fatigueInput') state.fatigue = value;
+  if (id === 'voiceToggle') state.voice = event.target.checked;
+  if (id === 'facingSelect') state.facing = value;
+  if (id === 'difficultySelect') {
     state.difficulty = value;
     state.analyzer.configure(state.exercise, { difficulty: state.difficulty, targetReps: state.targetReps });
     updateTrainingUI();
   }
-  if(id==='targetRepsSelect') {
+  if (id === 'targetRepsSelect') {
     state.targetReps = Number(value);
     state.analyzer.configure(state.exercise, { difficulty: state.difficulty, targetReps: state.targetReps });
     updateTrainingUI();
   }
-  if(id==='videoFileInput') {
+  if (id === 'videoFileInput') {
     const file = event.target.files?.[0];
     if (file) begin('video', file);
     event.target.value = '';
@@ -1090,5 +1092,5 @@ window.addEventListener('keydown', event => {
     togglePause();
   }
 });
-window.addEventListener('beforeunload',stopRealtime);
+window.addEventListener('beforeunload', stopRealtime);
 shell();

@@ -20,16 +20,34 @@ RESOURCES = [
         'desc': 'Google MediaPipe Pose Landmarker Lite Model (float16)'
     },
     {
+        'name': 'tasks-vision.mjs',
+        'url': 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21/vision_bundle.mjs',
+        'dest': MODELS_DIR / 'tasks-vision.mjs',
+        'desc': 'MediaPipe Vision Tasks ESM Bundle (Offline Runtime)'
+    },
+    {
         'name': 'vision_wasm_internal.wasm',
         'url': 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21/wasm/vision_wasm_internal.wasm',
         'dest': WASM_DIR / 'vision_wasm_internal.wasm',
-        'desc': 'MediaPipe Vision Tasks WASM Runtime'
+        'desc': 'MediaPipe Vision Tasks WASM Runtime (SIMD)'
     },
     {
         'name': 'vision_wasm_internal.js',
         'url': 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21/wasm/vision_wasm_internal.js',
         'dest': WASM_DIR / 'vision_wasm_internal.js',
-        'desc': 'MediaPipe Vision Tasks WASM Loader'
+        'desc': 'MediaPipe Vision Tasks WASM Loader (SIMD)'
+    },
+    {
+        'name': 'vision_wasm_nosimd_internal.wasm',
+        'url': 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21/wasm/vision_wasm_nosimd_internal.wasm',
+        'dest': WASM_DIR / 'vision_wasm_nosimd_internal.wasm',
+        'desc': 'MediaPipe Vision Tasks WASM Runtime (No-SIMD Fallback)'
+    },
+    {
+        'name': 'vision_wasm_nosimd_internal.js',
+        'url': 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21/wasm/vision_wasm_nosimd_internal.js',
+        'dest': WASM_DIR / 'vision_wasm_nosimd_internal.js',
+        'desc': 'MediaPipe Vision Tasks WASM Loader (No-SIMD Fallback)'
     }
 ]
 

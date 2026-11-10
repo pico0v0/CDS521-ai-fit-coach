@@ -1,38 +1,56 @@
-/** Loads real Google MediaPipe only after explicit user action. Supports local offline model & fallback. */
+/** Loads Google MediaPipe Pose Landmarker.
+ * Prioritizes self-hosted local server assets (/models/...) to eliminate external CDN latency and network blocks.
+ */
 const VERSION = '0.10.21';
+const LOCAL_ESM = '/models/tasks-vision.mjs';
+const LOCAL_WASM = '/models/wasm';
+const LOCAL_MODEL = '/models/pose_landmarker_lite.task';
+
 const CDN = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${VERSION}`;
 const REMOTE_MODEL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
 let modulePromise;
 
 export async function resolveModelAssets() {
-  const localModel = '/models/pose_landmarker_lite.task';
-  let modelPath = REMOTE_MODEL;
-  let wasmPath = `${CDN}/wasm`;
-  let isLocal = false;
+  let modelPath = LOCAL_MODEL;
+  let wasmPath = LOCAL_WASM;
+  let isLocal = true;
 
   try {
-    const res = await fetch(localModel, { method: 'HEAD' });
-    if (res.ok) {
-      modelPath = localModel;
-      isLocal = true;
+    const res = await fetch(LOCAL_MODEL, { method: 'HEAD' });
+    if (!res.ok) {
+      modelPath = REMOTE_MODEL;
+      isLocal = false;
     }
-  } catch {}
+  } catch {
+    modelPath = REMOTE_MODEL;
+    isLocal = false;
+  }
 
   try {
     const res = await fetch('/models/wasm/vision_wasm_internal.wasm', { method: 'HEAD' });
-    if (res.ok) {
-      wasmPath = '/models/wasm';
+    if (!res.ok) {
+      wasmPath = `${CDN}/wasm`;
     }
-  } catch {}
+  } catch {
+    wasmPath = `${CDN}/wasm`;
+  }
 
   return { modelPath, wasmPath, isLocal };
 }
 
 export async function createPoseLandmarker(options = {}) {
-  const timeoutMs = options.timeoutMs ?? 18000;
+  const timeoutMs = options.timeoutMs ?? 30000;
 
   const initPromise = (async () => {
     modulePromise ||= (async () => {
+      // 1. First priority: load from local self-hosted server bundle
+      try {
+        const mod = await import(LOCAL_ESM);
+        if (mod && mod.PoseLandmarker) return mod;
+      } catch (eLocal) {
+        console.warn('Local tasks-vision.mjs failed, trying CDN fallback...', eLocal);
+      }
+      // 2. Fallbacks for environments where local bundle might be missing
       try {
         return await import(`${CDN}/+esm`);
       } catch (e1) {
@@ -59,9 +77,13 @@ export async function createPoseLandmarker(options = {}) {
       wasm = await FilesetResolver.forVisionTasks(wasmPath);
     } catch {
       try {
-        wasm = await FilesetResolver.forVisionTasks(`${CDN}/wasm`);
+        wasm = await FilesetResolver.forVisionTasks(LOCAL_WASM);
       } catch {
-        wasm = await FilesetResolver.forVisionTasks(`https://unpkg.com/@mediapipe/tasks-vision@${VERSION}/wasm`);
+        try {
+          wasm = await FilesetResolver.forVisionTasks(`${CDN}/wasm`);
+        } catch {
+          wasm = await FilesetResolver.forVisionTasks(`https://unpkg.com/@mediapipe/tasks-vision@${VERSION}/wasm`);
+        }
       }
     }
 
@@ -84,7 +106,7 @@ export async function createPoseLandmarker(options = {}) {
 
   const timeoutPromise = new Promise((_, reject) => {
     setTimeout(() => {
-      reject(new Error('模型资源下载超时（可能受校园网或远程连接限制），建议运行 python scripts/download_models.py 启用本地模型，或直接使用独立的模拟演示模式。'));
+      reject(new Error('模型资源加载超时（可能受校园网或远程连接限制），建议确认服务器模型文件完整，或使用独立的模拟演示模式。'));
     }, timeoutMs);
   });
 
@@ -93,7 +115,7 @@ export async function createPoseLandmarker(options = {}) {
 
 export const MEDIAPIPE_DETAILS = {
   version: VERSION,
-  model: REMOTE_MODEL,
-  localModelPath: '/models/pose_landmarker_lite.task',
-  runtime: CDN
+  model: LOCAL_MODEL,
+  localModelPath: LOCAL_MODEL,
+  runtime: LOCAL_ESM
 };
