@@ -91,7 +91,7 @@ async function handleRequest(req, res) {
       });
       proxyReq.on('error', () => {
         res.writeHead(503, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>FitMind AI 未启动</title><style>body{font-family:sans-serif;background:#0c1b28;color:#e2e8f0;padding:40px;line-height:1.6}pre{background:#172d3c;padding:15px;border-radius:8px;color:#a7f3d0}</style></head><body><h2>🥗 FitMind AI 本地规划服务未启动</h2><p>当前运行在本地开发模式。如需使用饮食与训练规划功能，请在终端启动 Streamlit 服务：</p><pre>cd "AI 个性化健身与饮食规划系统/fitmind-ai"\nstreamlit run app.py --server.baseUrlPath plan --server.port 6692</pre><p>如在云端部署，Nginx 会自动代理到线上服务。</p></body></html>`);
+        res.end(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>FitMind AI 未启动</title><style>body{font-family:sans-serif;background:#0c1b28;color:#e2e8f0;padding:40px;line-height:1.6}pre{background:#172d3c;padding:15px;border-radius:8px;color:#a7f3d0}</style></head><body><h2>🥗 FitMind AI 本地规划服务未启动</h2><p>当前运行在本地开发模式。如需使用完整大模型规划功能，请在终端启动 REST API 服务：</p><pre>cd planner-api\npython api_server.py</pre><p>前端亦已内置确定性规则引擎，即使未启动 Python 后端也可正常生成规划。</p></body></html>`);
       });
       req.pipe(proxyReq);
       return;
