@@ -1,7 +1,7 @@
 /** Dependency-free static server.
  * Enforces strict per-zone client asset path whitelisting, directory & file symlink rejection, and HTTPS support.
  */
-import { createServer as createHttpServer } from 'node:http';
+import { createServer as createHttpServer, request as httpRequest } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
 import { existsSync, readFileSync } from 'node:fs';
 import { readFile, stat, lstat, realpath } from 'node:fs/promises';
@@ -52,6 +52,27 @@ async function handleRequest(req, res) {
     if (relParts.some(part => part === '..' || part.startsWith('.'))) {
       res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
       res.end('Forbidden');
+      return;
+    }
+
+    // Forward /plan requests to FitMind AI (for local dev mode)
+    if (pathname === '/plan' || pathname.startsWith('/plan/')) {
+      const fitmindPort = Number(process.env.FITMIND_PORT) || 6692;
+      const proxyReq = httpRequest({
+        hostname: '127.0.0.1',
+        port: fitmindPort,
+        path: req.url,
+        method: req.method,
+        headers: { ...req.headers, host: `127.0.0.1:${fitmindPort}` }
+      }, (proxyRes) => {
+        res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
+        proxyRes.pipe(res);
+      });
+      proxyReq.on('error', () => {
+        res.writeHead(503, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>FitMind AI 未启动</title><style>body{font-family:sans-serif;background:#0c1b28;color:#e2e8f0;padding:40px;line-height:1.6}pre{background:#172d3c;padding:15px;border-radius:8px;color:#a7f3d0}</style></head><body><h2>🥗 FitMind AI 本地规划服务未启动</h2><p>当前运行在本地开发模式。如需使用饮食与训练规划功能，请在终端启动 Streamlit 服务：</p><pre>cd "AI 个性化健身与饮食规划系统/fitmind-ai"\nstreamlit run app.py --server.baseUrlPath plan --server.port 6692</pre><p>如在云端部署，Nginx 会自动代理到线上服务。</p></body></html>`);
+      });
+      req.pipe(proxyReq);
       return;
     }
 

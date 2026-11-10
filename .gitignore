@@ -12,3 +12,5 @@ models/wasm/
 audit/
 R2_EVIDENCE.json
 *.jsonl
+.pytest_cache/
+.env

@@ -15,13 +15,24 @@ function downloadFile(content, filename, type) {
   URL.revokeObjectURL(url);
 }
 
+const urlParams = typeof window !== 'undefined' && window.location?.search
+  ? new URLSearchParams(window.location.search)
+  : new URLSearchParams();
+const queryView = urlParams.get('view');
+const queryEx = urlParams.get('exercise');
+const validViews = ['home', 'training', 'planner', 'reports', 'about'];
+const validExercises = ['squat', 'curl', 'jumping_jack', 'lunge', 'pushup'];
+
+const initialView = validViews.includes(queryView) ? queryView : 'home';
+const initialExercise = validExercises.includes(queryEx) ? queryEx : 'squat';
+
 const root = document.querySelector('#app');
 const state = {
-  view: 'home', exercise: 'squat', goal: 'habit', fatigue: 'normal', facing: 'user',
+  view: initialView, exercise: initialExercise, goal: 'habit', fatigue: 'normal', facing: 'user',
   difficulty: 'standard', targetReps: 10, targetAchieved: false,
   demoType: 'standard', selectedFaultIndex: 0,
   voice: false, mode: null, running: false, paused: false,
-  analyzer: new ExerciseAnalyzer('squat', { difficulty: 'standard', targetReps: 10 }),
+  analyzer: new ExerciseAnalyzer(initialExercise, { difficulty: 'standard', targetReps: 10 }),
   stream: null, detector: null, frame: 0, lastFrame: 0, lastVideoTime: -1,
   startWall: 0, startPerf: 0, pauseAt: 0, pauseDuration: 0, warningLogs: [],
   lastSession: null, toast: '', activeRunId: 0, modelReady: false, trackedFrames: 0,
@@ -30,7 +41,7 @@ const state = {
 let trainingNodes = null;
 const TRAINING_IDS = ['poseCanvas','repsCount','partialCount','angleValue','phaseStat','clock','targetDepthLabel','depthBar','depthPercent','activeSideBadge','stageHint'];
 const icons = {
-  home:'⌂', training:'◉', reports:'▥', about:'◇', camera:'▣', close:'×',
+  home:'⌂', training:'◉', planner:'🥗', reports:'▥', about:'◇', camera:'▣', close:'×',
 };
 const escapeText = (v) => String(v).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const int = n => String(Math.max(0, n | 0)).padStart(2, '0');
@@ -41,14 +52,14 @@ function shell() {
   root.innerHTML = `<div class="app-shell">
     <aside class="sidebar">
       <div class="brand"><div class="brand-icon">A<span>·</span></div><div><strong>AI FIT COACH</strong><small>VISION FITNESS LAB</small></div></div>
-      <div class="nav-caption">WORKSPACE <span>01 / 04</span></div>
+      <div class="nav-caption">WORKSPACE <span>01 / 05</span></div>
       <nav class="nav-list" aria-label="主导航">
-        ${[['home','工作台','⌂'],['training','实时训练','◉'],['reports','训练报告','▦'],['about','项目说明','◇']].map(([view,name,symbol])=>`<button type="button" class="nav-btn ${state.view===view?'active':''}" data-view="${view}" aria-current="${state.view===view?'page':'false'}"><span class="nav-symbol">${symbol}</span><span>${name}</span>${view==='training'?'<span class="small-glow"></span>':''}</button>`).join('')}
+        ${[['home','工作台','⌂'],['training','实时训练','◉'],['planner','饮食与周计划','🥗'],['reports','训练报告','▦'],['about','项目说明','◇']].map(([view,name,symbol])=>`<button type="button" class="nav-btn ${state.view===view?'active':''}" data-view="${view}" aria-current="${state.view===view?'page':'false'}"><span class="nav-symbol">${symbol}</span><span>${name}</span>${view==='training'?'<span class="small-glow"></span>':''}</button>`).join('')}
       </nav>
       <div class="sidebar-bottom"><div class="device-icon">✦</div><div><strong>AI Foundations</strong><small>Course project · v0.1.0</small></div></div>
     </aside>
     <div class="workspace">
-      <header class="topbar"><div class="breadcrumb">AI FIT COACH <span>/</span> ${escapeText(({home:'概览',training:'实时训练',reports:'训练报告',about:'项目说明'})[state.view])}</div><div class="topbar-right"><span class="status-dot"></span> 本地运行 · 隐私优先 <span class="top-avatar">AI</span></div></header>
+      <header class="topbar"><div class="breadcrumb">AI FIT COACH <span>/</span> ${escapeText(({home:'概览',training:'实时训练',planner:'饮食与周计划',reports:'训练报告',about:'项目说明'})[state.view] || state.view)}</div><div class="topbar-right"><span class="status-dot"></span> 本地运行 · 隐私优先 <span class="top-avatar">AI</span></div></header>
       <main id="page-content" tabindex="-1"></main>
       <footer class="footer"><span>© AI FIT COACH / COURSE DEMO</span><span>非医疗工具 · 不进行损伤诊断</span></footer>
     </div>
@@ -61,6 +72,7 @@ function renderPage() {
   if (!page) return;
   if (state.view === 'home') page.innerHTML = homePage();
   if (state.view === 'training') { page.innerHTML = trainingPage(); drawIdle(document.querySelector('#poseCanvas')); updateTrainingUI(); }
+  if (state.view === 'planner') page.innerHTML = plannerPage();
   if (state.view === 'reports') page.innerHTML = reportsPage();
   if (state.view === 'about') page.innerHTML = aboutPage();
 }
@@ -77,18 +89,59 @@ function homePage() {
   const total = sessions.reduce((a,s)=>a+s.count,0);
   return `<div class="page">
     <section class="hero">
-      <div class="hero-copy"><div class="eyebrow"><span class="eyebrow-line"></span> COMPUTER VISION × FITNESS</div>
+      <div class="hero-copy"><div class="eyebrow"><span class="eyebrow-line"></span> COMPUTER VISION × FITNESS × LLM</div>
         <h1>让镜头，成为<br/><em>你的训练搭档。</em></h1>
-        <p>无需穿戴设备，只用一个摄像头。基于真实人体姿态估计，体验动作计数、即时反馈与个性化训练总结。</p>
-        <div class="hero-actions"><button class="btn btn-primary" data-action="open-training">进入实时训练 <span>↗</span></button><button class="btn btn-outline" data-action="quick-demo">体验模拟演示 <span>↗</span></button></div>
-        <div class="hero-meta"><span><i></i> MediaPipe Pose Landmarker</span><span><i></i> 33 个人体关键点</span></div>
+        <p>无需穿戴设备，只用一个摄像头。基于真实人体姿态估计，体验动作计数、即时反馈与个性化训练总结；更有 FitMind AI 智能制定 7 天训练与膳食热量规划。</p>
+        <div class="hero-actions">
+          <button class="btn btn-primary" data-action="open-training">进入实时训练 <span>↗</span></button>
+          <button class="btn btn-outline" data-action="open-planner">饮食与周计划 <span>🥗</span></button>
+          <button class="btn btn-outline" data-action="quick-demo">体验模拟演示 <span>↗</span></button>
+        </div>
+        <div class="hero-meta"><span><i></i> MediaPipe Pose Landmarker</span><span><i></i> 33 个人体关键点</span><span><i></i> FitMind 智能约束校验</span></div>
       </div><div class="hero-art" aria-hidden="true"><div class="art-circle circle-one"></div><div class="art-circle circle-two"></div><svg viewBox="0 0 300 330" class="hero-person"><g fill="none" stroke="#c9ff72" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><circle cx="148" cy="50" r="25"/><path d="M146 77 139 174 115 239 92 305 M140 174 183 235 205 308 M144 98 98 135 69 186 M145 98 203 134 238 179"/><path d="M125 172 164 174" stroke="#eaffce"/></g><g fill="#fff"><circle cx="139" cy="174" r="6"/><circle cx="115" cy="239" r="6"/><circle cx="183" cy="235" r="6"/><circle cx="98" cy="135" r="6"/><circle cx="203" cy="134" r="6"/></g></svg><div class="art-tag tag-top">33 LANDMARKS <span>● TRACKING</span></div><div class="art-tag tag-bottom">POSE DETECTED <span class="spark">✳</span></div></div>
     </section>
+
+    <!-- FitMind AI Planner Integration Card -->
+    <section class="planner-hub-card">
+      <div class="planner-hub-content">
+        <div class="planner-hub-badge">🥗 智能规划联动 · FITMIND AI</div>
+        <h3>个性化健身与饮食规划系统</h3>
+        <p>输入你的年龄、体重、目标与饮食禁忌，由大语言模型与确定性规则校验器联合生成专属 7 天训练与食谱；计划中的深蹲、俯卧撑、弓步与开合跳可一键唤醒本站 AI 摄像头视觉跟练！</p>
+        <div class="planner-hub-tags">
+          <span>✓ 7 天周期化运动负荷</span>
+          <span>✓ 确定性热量/营养计算</span>
+          <span>✓ 食材过敏原冲突阻断</span>
+          <span>✓ 联动视觉动作实时纠错</span>
+        </div>
+      </div>
+      <div class="planner-hub-action">
+        <button class="btn btn-primary" data-action="open-planner">制定饮食与周计划 →</button>
+        <a href="/plan/" target="_blank" class="btn btn-outline planner-sub-btn">在新窗口独立打开 ↗</a>
+      </div>
+    </section>
+
     <div class="section-label">概览数据 <span>OVERVIEW / LOCAL DATA</span></div>
-    <section class="metrics"><div class="metric-card"><span>累计训练</span><strong>${sessions.length.toString().padStart(2,'0')} <small>次</small></strong><div class="metric-foot">保存在本机浏览器</div></div><div class="metric-card"><span>累计有效动作</span><strong>${total.toString().padStart(2,'0')} <small>次</small></strong><div class="metric-foot">基于当前演示规则</div></div><div class="metric-card"><span>已支持动作</span><strong>03 <small>种</small></strong><div class="metric-foot">深蹲 / 弯举 / 开合跳</div></div><div class="metric-card accent-card"><span>核心算法</span><strong class="metric-word">姿态估计</strong><div class="metric-foot">预训练 AI + 状态机</div></div></section>
+    <section class="metrics">
+      <div class="metric-card"><span>累计训练</span><strong>${sessions.length.toString().padStart(2,'0')} <small>次</small></strong><div class="metric-foot">保存在本机浏览器</div></div>
+      <div class="metric-card"><span>累计有效动作</span><strong>${total.toString().padStart(2,'0')} <small>次</small></strong><div class="metric-foot">基于当前演示规则</div></div>
+      <div class="metric-card"><span>已支持视觉动作</span><strong>05 <small>种</small></strong><div class="metric-foot">深蹲 / 弯举 / 开合跳 / 弓步 / 俯卧撑</div></div>
+      <div class="metric-card accent-card"><span>规划 + 视觉</span><strong class="metric-word">双脑驱动</strong><div class="metric-foot">LLM 规划 + 计算机视觉跟练</div></div>
+    </section>
+
     <div class="section-label">三阶段智能训练 <span>THE WORKFLOW</span></div>
-    <section class="feature-grid"><article class="feature-card"><span class="feature-number">01 / BEFORE</span><div class="feature-icon">◎</div><h3>训练前 · 做好准备</h3><p>选择训练目标和动作，按照机位建议调整拍摄位置。</p></article><article class="feature-card"><span class="feature-number">02 / DURING</span><div class="feature-icon">⌁</div><h3>训练中 · 实时反馈</h3><p>AI 提取骨架关键点，规则算法判断动作阶段、计数与幅度。</p></article><article class="feature-card"><span class="feature-number">03 / AFTER</span><div class="feature-icon">▥</div><h3>训练后 · 复盘优化</h3><p>生成基础训练报告，根据主观疲劳和目标给出非医疗性建议。</p></article></section>
-    <section class="callout"><div><span class="chip">COURSE DEMO</span><h3>无需配置服务端，即可开始探索。</h3><p>模拟模式不运行 AI；真实识别需要摄像头权限及首次加载模型的网络连接。演示时请明确区分。</p></div><button class="btn btn-secondary" data-action="open-training">开始使用 →</button></section>
+    <section class="feature-grid">
+      <article class="feature-card"><span class="feature-number">01 / BEFORE</span><div class="feature-icon">🥗</div><h3>规划前 · 制定方案</h3><p>使用 FitMind AI 制定周期化周计划与热量饮食配比。</p></article>
+      <article class="feature-card"><span class="feature-number">02 / DURING</span><div class="feature-icon">⌁</div><h3>训练中 · 实时反馈</h3><p>AI 提取骨架关键点，规则算法判断动作阶段、计数与幅度。</p></article>
+      <article class="feature-card"><span class="feature-number">03 / AFTER</span><div class="feature-icon">▥</div><h3>训练后 · 复盘优化</h3><p>生成基础训练报告，根据主观疲劳和目标给出非医疗性建议。</p></article>
+    </section>
+    <section class="callout">
+      <div>
+        <span class="chip">COURSE DEMO</span>
+        <h3>单站整合：动作视觉纠错 + 饮食健身规划</h3>
+        <p>无需切换端口或服务器，同一 HTTPS 域名下直接体验视觉动作跟练与大模型饮食规划。</p>
+      </div>
+      <button class="btn btn-secondary" data-action="open-training">开始使用 →</button>
+    </section>
   </div>`;
 }
 function renderDemoGuideHTML() {
@@ -223,6 +276,44 @@ function trainingPage() {
     <section class="notes-line"><div>✧ <strong>真实 AI 模式</strong>：姿态识别由 MediaPipe 完成</div><div>◇ <strong>模拟演示</strong>：合成骨架测试算法，不代表真实模型表现</div></section>
   </div>`;
 }
+function plannerPage() {
+  return `<div class="page planner-page">
+    <div class="page-heading">
+      <div>
+        <div class="eyebrow">FITMIND AI / NUTRITION &amp; WORKOUT PLANNING</div>
+        <h2>饮食与周计划 <span>INTELLIGENT PLANNER</span></h2>
+        <p>基于大语言模型与约束校验的个性化健身及饮食规划系统，制定专属 7 天训练与膳食计划。</p>
+      </div>
+      <div class="planner-heading-actions">
+        <a href="/plan/" target="_blank" class="btn btn-secondary planner-ext-btn">
+          在新标签页全屏打开 ↗
+        </a>
+      </div>
+    </div>
+    <div class="planner-card">
+      <div class="planner-toolbar">
+        <div class="planner-toolbar-left">
+          <span class="planner-badge">● LLM 规划引擎在线</span>
+          <span class="planner-tip">💡 在周计划动作清单中点击【📹 AI 视觉跟练】，可直接调起摄像头识别该动作！</span>
+        </div>
+        <div class="planner-toolbar-right">
+          <button type="button" class="btn btn-sm btn-outline" data-action="reload-planner" title="重新载入规划页面">刷新页面 ↺</button>
+        </div>
+      </div>
+      <div class="planner-iframe-wrapper">
+        <iframe
+          id="plannerIframe"
+          src="/plan/"
+          title="FitMind AI 饮食与健身规划"
+          class="planner-iframe"
+          allow="camera; microphone; accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope"
+          loading="eager"
+        ></iframe>
+      </div>
+    </div>
+  </div>`;
+}
+
 function reportsPage() {
   const sessions = loadSessions();
   const current = state.lastSession || latest();
@@ -780,6 +871,13 @@ document.addEventListener('click', async event => {
   if (!action) return;
   switch(action) {
     case 'open-training': setView('training'); break;
+    case 'open-planner': setView('planner'); break;
+    case 'reload-planner': {
+      const f = document.querySelector('#plannerIframe');
+      if (f) f.src = f.src;
+      toast('正在重新载入规划页面…');
+      break;
+    }
     case 'quick-demo': setView('training'); await begin('demo', null, { demoType: 'standard' }); break;
     case 'start-demo': await begin('demo', null, { demoType: state.demoType || 'standard' }); break;
     case 'start-demo-standard': {
