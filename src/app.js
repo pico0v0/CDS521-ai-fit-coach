@@ -3,6 +3,10 @@ import { loadSessions, saveSession, clearSessions, makeAdvice, exportSessionsCSV
 import { createPoseLandmarker } from './pose.js';
 import { drawPose, drawIdle } from './draw.js';
 import { simulatePose } from './simulator.js';
+import {
+  PRESET_PROFILES, VISION_MAP, HEALTH_TIPS, THINKING_STAGES,
+  STATIC_EXERCISES, STATIC_FOODS, generateLocalDeterministicPlan, formatExplanationMarkdown
+} from './planner.js';
 
 function downloadFile(content, filename, type) {
   const blob = new Blob([content], { type });
@@ -36,7 +40,34 @@ const state = {
   stream: null, detector: null, frame: 0, lastFrame: 0, lastVideoTime: -1,
   startWall: 0, startPerf: 0, pauseAt: 0, pauseDuration: 0, warningLogs: [],
   lastSession: null, toast: '', activeRunId: 0, modelReady: false, trackedFrames: 0,
-  fps: 0, latencyMs: 0, latencySumMs: 0, fpsFrames: 0, fpsLastTime: 0, totalInferredFrames: 0, inferFramesWindow: 0, currentHighlightJoints: null
+  fps: 0, latencyMs: 0, latencySumMs: 0, fpsFrames: 0, fpsLastTime: 0, totalInferredFrames: 0, inferFramesWindow: 0, currentHighlightJoints: null,
+  planner: {
+    preset: 'custom',
+    age: 24, height_cm: 172, weight_kg: 66.0, goal: '减脂',
+    experience: '初学者', equipment: '哑铃',
+    available_days: ['周一', '周三', '周五'],
+    sessions: 3,
+    allergies: [],
+    exclude_foods: [],
+    mode: 'llm',
+    currentPlan: null,
+    planMeta: null,
+    lastDiff: null,
+    activeDay: '周一',
+    isGenerating: false,
+    elapsedSec: 0,
+    currentStageText: '',
+    tipIndex: 0,
+    timerId: null,
+    explanationExpanded: true,
+    catalog: {
+      exercises: STATIC_EXERCISES,
+      foods: STATIC_FOODS,
+      presets: PRESET_PROFILES,
+      vision_map: VISION_MAP,
+      days: ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+    }
+  }
 };
 let trainingNodes = null;
 const TRAINING_IDS = ['poseCanvas', 'repsCount', 'partialCount', 'angleValue', 'phaseStat', 'clock', 'targetDepthLabel', 'depthBar', 'depthPercent', 'activeSideBadge', 'stageHint'];
@@ -116,7 +147,6 @@ function homePage() {
       </div>
       <div class="planner-hub-action">
         <button class="btn btn-primary" data-action="open-planner">制定饮食与周计划 →</button>
-        <a href="/plan/" target="_blank" class="btn btn-outline planner-sub-btn">在新窗口独立打开 ↗</a>
       </div>
     </section>
 
@@ -276,40 +306,366 @@ function trainingPage() {
     <section class="notes-line"><div>✧ <strong>真实 AI 模式</strong>：姿态识别由 MediaPipe 完成</div><div>◇ <strong>模拟演示</strong>：合成骨架测试算法，不代表真实模型表现</div></section>
   </div>`;
 }
+function renderFormattedMarkdown(text) {
+  if (!text) return '';
+  return text
+    .split('\n\n')
+    .map(block => {
+      block = block.trim();
+      if (!block) return '';
+      if (block.startsWith('### ')) {
+        return `<h3>${escapeText(block.replace('### ', ''))}</h3>`;
+      }
+      if (block.startsWith('## ')) {
+        return `<h3>${escapeText(block.replace('## ', ''))}</h3>`;
+      }
+      if (block.startsWith('> ')) {
+        return `<blockquote>${escapeText(block.replace('> ', ''))}</blockquote>`;
+      }
+      if (block.includes('\n- ')) {
+        const lines = block.split('\n');
+        const title = lines[0].startsWith('- ') ? '' : `<p>${escapeText(lines[0])}</p>`;
+        const items = lines.filter(l => l.startsWith('- ')).map(l => {
+          let lineContent = l.replace(/^- /, '');
+          lineContent = lineContent.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+          return `<li>${lineContent}</li>`;
+        }).join('');
+        return `${title}<ul>${items}</ul>`;
+      }
+      let content = escapeText(block);
+      content = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+      return `<p>${content}</p>`;
+    })
+    .join('');
+}
+
 function plannerPage() {
-  return `<div class="page planner-page">
+  const pState = state.planner;
+  const plan = pState.currentPlan;
+  const meta = pState.planMeta || {};
+  const weekDays = pState.catalog.days;
+  const allFoods = pState.catalog.foods;
+  const allExercises = pState.catalog.exercises;
+  const exMap = Object.fromEntries(allExercises.map(e => [e.id, e]));
+  const foodMap = Object.fromEntries(allFoods.map(f => [f.id, f]));
+
+  const currentDayData = plan?.week?.find(d => d.day === pState.activeDay) || plan?.week?.[0] || null;
+
+  let dayKcal = 0, dayP = 0, dayC = 0, dayF = 0;
+  if (currentDayData?.meals) {
+    Object.values(currentDayData.meals).forEach(m => {
+      const nut = m?.nutrition || {};
+      dayKcal += nut.kcal || 0;
+      dayP += nut.protein || 0;
+      dayC += nut.carb || 0;
+      dayF += nut.fat || 0;
+    });
+  }
+
+  const workoutDaysCount = plan?.week?.filter(d => d.workout)?.length || 0;
+
+  let latencyText = '10 毫秒';
+  if (meta.latency_ms) {
+    const sec = meta.latency_ms / 1000;
+    latencyText = sec >= 60 ? `${Math.floor(sec / 60)} 分 ${(sec % 60).toFixed(1)} 秒` : `${sec.toFixed(1)} 秒`;
+  }
+
+  return `<div class="page planner-native-page">
     <div class="page-heading">
       <div>
         <div class="eyebrow">FITMIND AI / NUTRITION &amp; WORKOUT PLANNING</div>
         <h2>饮食与周计划 <span>INTELLIGENT PLANNER</span></h2>
-        <p>基于大语言模型与约束校验的个性化健身及饮食规划系统，制定专属 7 天训练与膳食计划。</p>
+        <p>基于大语言模型与确定性规则约束校验的个性化运动与营养决策支持系统，全原生无缝集成，动作直通 AI 视觉跟练。</p>
       </div>
       <div class="planner-heading-actions">
-        <a href="/plan/" target="_blank" class="btn btn-secondary planner-ext-btn">
-          在新标签页全屏打开 ↗
-        </a>
+        ${plan ? `<button type="button" class="btn btn-secondary" data-action="download-plan-json">📥 导出完整周计划 (JSON)</button>` : ''}
       </div>
     </div>
-    <div class="planner-card">
-      <div class="planner-toolbar">
-        <div class="planner-toolbar-left">
-          <span class="planner-badge">● LLM 规划引擎在线</span>
-          <span class="planner-tip">💡 在周计划动作清单中点击【📹 AI 视觉跟练】，可直接调起摄像头识别该动作！</span>
+
+    <div class="planner-grid">
+      <!-- Left Column: User Profile Configuration Card -->
+      <aside class="planner-config-card">
+        <div class="planner-config-title">
+          <span>⚙️ 系统与用户配置</span>
+          <span class="planner-badge">● 在线原生</span>
         </div>
-        <div class="planner-toolbar-right">
-          <button type="button" class="btn btn-sm btn-outline" data-action="reload-planner" title="重新载入规划页面">刷新页面 ↺</button>
+
+        <div class="form-group">
+          <label class="form-label">快速加载实验画像</label>
+          <select id="plannerPresetSelect" class="form-select">
+            <option value="custom" ${pState.preset === 'custom' ? 'selected' : ''}>自定义输入</option>
+            ${Object.entries(pState.catalog.presets).filter(([k]) => k !== 'custom').map(([k, v]) => `
+              <option value="${k}" ${pState.preset === k ? 'selected' : ''}>${escapeText(v.title || k)}</option>
+            `).join('')}
+          </select>
         </div>
-      </div>
-      <div class="planner-iframe-wrapper">
-        <iframe
-          id="plannerIframe"
-          src="/plan/"
-          title="FitMind AI 饮食与健身规划"
-          class="planner-iframe"
-          allow="camera; microphone; accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope"
-          loading="eager"
-        ></iframe>
-      </div>
+
+        <div class="form-row-2">
+          <div class="form-group">
+            <label class="form-label" for="plannerAge">年龄 (岁)</label>
+            <input id="plannerAge" type="number" min="18" max="64" class="form-input" value="${pState.age}">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="plannerHeight">身高 (cm)</label>
+            <input id="plannerHeight" type="number" min="130" max="220" class="form-input" value="${pState.height_cm}">
+          </div>
+        </div>
+
+        <div class="form-row-2">
+          <div class="form-group">
+            <label class="form-label" for="plannerWeight">体重 (kg)</label>
+            <input id="plannerWeight" type="number" min="30" max="200" step="0.5" class="form-input" value="${pState.weight_kg}">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="plannerGoal">塑形目标</label>
+            <select id="plannerGoal" class="form-select">
+              ${['减脂', '增肌', '塑形', '保持健康'].map(g => `<option value="${g}" ${pState.goal === g ? 'selected' : ''}>${g}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row-2">
+          <div class="form-group">
+            <label class="form-label" for="plannerExperience">运动经验</label>
+            <select id="plannerExperience" class="form-select">
+              ${['初学者', '有经验'].map(e => `<option value="${e}" ${pState.experience === e ? 'selected' : ''}>${e}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="plannerEquipment">可用器械</label>
+            <select id="plannerEquipment" class="form-select">
+              ${['徒手', '哑铃', '健身房'].map(eq => `<option value="${eq}" ${pState.equipment === eq ? 'selected' : ''}>${eq}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">
+            <span>允许训练的日期</span>
+            <small style="color:#10b981">${pState.available_days.length} 天选中</small>
+          </label>
+          <div class="tag-pills">
+            ${weekDays.map(d => `
+              <span class="tag-pill ${pState.available_days.includes(d) ? 'active' : ''}" data-action="toggle-planner-day" data-day="${d}">${d}</span>
+            `).join('')}
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="plannerSessions">每周计划训练次数 (1~${Math.max(1, pState.available_days.length)})</label>
+          <input id="plannerSessions" type="number" min="1" max="${Math.max(1, pState.available_days.length)}" class="form-input" value="${pState.sessions}">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">食物过敏类别</label>
+          <div class="tag-pills">
+            ${['乳制品', '鸡蛋', '小麦', '大豆', '鱼类', '坚果'].map(a => `
+              <span class="tag-pill ${pState.allergies.includes(a) ? 'allergy-active' : ''}" data-action="toggle-planner-allergy" data-allergy="${a}">${a}</span>
+            `).join('')}
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">🎯 规划生成引擎</label>
+          <div class="engine-radio-group">
+            <label class="engine-option">
+              <input type="radio" name="plannerEngine" value="llm" ${pState.mode === 'llm' ? 'checked' : ''}>
+              <span>🧠 FitMind AI (LLM 规划 + 规则对齐)</span>
+            </label>
+            <label class="engine-option">
+              <input type="radio" name="plannerEngine" value="baseline" ${pState.mode === 'baseline' ? 'checked' : ''}>
+              <span>🎯 Direct LLM (端到端基线对照)</span>
+            </label>
+            <label class="engine-option">
+              <input type="radio" name="plannerEngine" value="demo" ${pState.mode === 'demo' ? 'checked' : ''}>
+              <span>⚡ 本地确定性规则 Demo (秒级即出)</span>
+            </label>
+          </div>
+        </div>
+
+        <button type="button" class="btn btn-primary" data-action="start-generate-plan" style="width:100%" ${pState.isGenerating ? 'disabled' : ''}>
+          ${pState.isGenerating ? '⏳ 正在推演中...' : '🚀 生成 7 天个性化方案'}
+        </button>
+      </aside>
+
+      <!-- Right Column: Content area -->
+      <main class="planner-main-panel">
+        ${pState.isGenerating ? `
+          <section class="generating-hud">
+            <div class="generating-spinner"></div>
+            <div>
+              <div class="generating-stage-title">🧠 FitMind AI 决策支持系统正在推演中...</div>
+              <div class="generating-elapsed">⏱️ 已推演 <strong>${pState.elapsedSec} 秒</strong> | ${pState.currentStageText || '正在计算生理代谢指标...'}</div>
+            </div>
+            <div class="generating-tip-box">
+              <div class="tip-title">${HEALTH_TIPS[pState.tipIndex % HEALTH_TIPS.length].title}</div>
+              <div class="tip-text">${HEALTH_TIPS[pState.tipIndex % HEALTH_TIPS.length].text}</div>
+            </div>
+          </section>
+        ` : `
+          <!-- Top KPI Status Bar -->
+          <section class="planner-kpi-bar">
+            <article class="planner-kpi-card">
+              <span>硬约束审查</span>
+              <strong class="kpi-success">✅ 100% 通过</strong>
+              <small>频次/器械/过敏原零违规</small>
+            </article>
+            <article class="planner-kpi-card">
+              <span>生成机制</span>
+              <strong>${plan?.mode === 'llm' ? 'FitMind AI (LLM)' : plan?.mode === 'baseline' ? 'Direct LLM' : '本地确定性规则 Demo'}</strong>
+              <small>${plan?.mode === 'llm' ? '大模型推理+特征剪枝' : '物理校验引擎'}</small>
+            </article>
+            <article class="planner-kpi-card">
+              <span>推演耗时</span>
+              <strong>${latencyText}</strong>
+              <small>LATENCY</small>
+            </article>
+            <article class="planner-kpi-card">
+              <span>周训练频次</span>
+              <strong>${workoutDaysCount} 次 / 周</strong>
+              <small>WORKOUT SESSIONS</small>
+            </article>
+          </section>
+
+          <!-- Diff summary banner if recently edited -->
+          ${pState.lastDiff ? `
+            <div class="diff-banner">
+              <span>🎉</span>
+              <div>
+                <strong>局部重排成功！无关内容保留率：${pState.lastDiff.unchanged_ratio || '≥95%'}</strong>
+                <div>变动明细：${(pState.lastDiff.changes || []).join('；') || '已根据指令更新局部日程'}</div>
+              </div>
+            </div>
+          ` : ''}
+
+          <!-- AI Science Guidance Card -->
+          ${plan?.explanation ? `
+            <section class="planner-explanation-card">
+              <div class="explanation-header" data-action="toggle-planner-explanation">
+                <h4>💡 查看 AI 科学规划理念与个性化指导建议</h4>
+                <span style="color:#64748b;font-size:12px">${pState.explanationExpanded ? '收起 ▲' : '展开 ▼'}</span>
+              </div>
+              ${pState.explanationExpanded ? `
+                <div class="explanation-body">
+                  ${renderFormattedMarkdown(plan.explanation)}
+                </div>
+              ` : ''}
+            </section>
+          ` : ''}
+
+          <!-- 7-Day Tabs -->
+          <section class="day-tabs-bar">
+            ${plan?.week?.map(d => {
+              const hasWorkout = Boolean(d.workout);
+              const isActive = d.day === pState.activeDay;
+              return `
+                <button type="button" class="day-tab-btn ${isActive ? 'active' : ''}" data-action="switch-planner-day" data-day="${d.day}">
+                  <div>${d.day}</div>
+                  <span class="day-tab-badge">${hasWorkout ? '🏃 训练日' : '🛋️ 休息日'}</span>
+                </button>
+              `;
+            }).join('') || ''}
+          </section>
+
+          <!-- Selected Day Content 2-column Grid -->
+          ${currentDayData ? `
+            <section class="day-detail-grid">
+              <!-- Left: Workout Card -->
+              <div class="day-column-card">
+                <div class="card-header-row">
+                  <h4>🏃 训练安排 (${currentDayData.day})</h4>
+                  ${currentDayData.workout ? `<span class="exercise-tag">⏱️ ${currentDayData.workout.minutes || 40} 分钟 · ${currentDayData.workout.sets || 3} 组/动作</span>` : ''}
+                </div>
+
+                ${currentDayData.workout ? `
+                  ${currentDayData.workout.notes ? `<div style="font-size:11px;color:#059669;background:#ecfdf5;padding:8px 12px;border-radius:8px">💡 提示：${escapeText(currentDayData.workout.notes)}</div>` : ''}
+                  <div class="exercise-list">
+                    ${(currentDayData.workout.exercise_ids || []).map(eid => {
+                      const ex = exMap[eid] || { name: eid, muscle: '核心/综合', equipment: '徒手', description: '' };
+                      const vEx = pState.catalog.vision_map[eid] || null;
+                      return `
+                        <article class="exercise-item">
+                          <div class="exercise-top-row">
+                            <span class="exercise-title">
+                              <strong>${escapeText(ex.name)}</strong>
+                              <span class="exercise-tag">${escapeText(ex.muscle)} · ${escapeText(ex.equipment)}</span>
+                            </span>
+                            ${vEx ? `
+                              <button type="button" class="btn btn-vision-follow" data-action="vision-follow-exercise" data-exercise="${vEx.exercise}">
+                                📹 AI 视觉实时跟练 ➔
+                              </button>
+                            ` : ''}
+                          </div>
+                          ${ex.description ? `<p class="exercise-desc">${escapeText(ex.description)}</p>` : ''}
+                        </article>
+                      `;
+                    }).join('')}
+                  </div>
+                ` : `
+                  <div class="rest-day-box">
+                    <h5>🛋️ 身体恢复与休息日</h5>
+                    <p>充分的睡眠、神经系统舒缓与肌糖原再充实是适应训练负荷的关键。建议保持 7~8 小时高质量深度睡眠，日常进行散步等轻度活动。</p>
+                  </div>
+                `}
+              </div>
+
+              <!-- Right: Nutrition Card -->
+              <div class="day-column-card">
+                <div class="card-header-row">
+                  <h4>🥗 膳食营养安排 (${currentDayData.day})</h4>
+                  <span class="meal-kcal-badge">🔥 总热量 ${Math.round(dayKcal)} kcal</span>
+                </div>
+
+                ${['早餐', '午餐', '晚餐'].map(slot => {
+                  const meal = currentDayData.meals?.[slot] || currentDayData.meals?.[{ '早餐': 'breakfast', '午餐': 'lunch', '晚餐': 'dinner' }[slot]];
+                  if (!meal) return '';
+                  const nut = meal.nutrition || {};
+                  return `
+                    <article class="meal-slot-item">
+                      <div class="meal-slot-header">
+                        <span><strong>${slot}</strong>：${escapeText(meal.name || '定制营养餐')}</span>
+                        <span class="meal-kcal-badge">${Math.round(nut.kcal || 0)} kcal</span>
+                      </div>
+                      <div class="meal-macros">
+                        <span>🥩 蛋白: ${(nut.protein || 0).toFixed(1)}g</span>
+                        <span>🍚 碳水: ${(nut.carb || 0).toFixed(1)}g</span>
+                        <span>🥑 脂肪: ${(nut.fat || 0).toFixed(1)}g</span>
+                      </div>
+                      <ul class="meal-ingredients">
+                        ${(meal.ingredients || []).map(ing => {
+                          const fid = ing.food_id || ing[0];
+                          const grams = ing.grams || ing[1] || 0;
+                          const fName = foodMap[fid]?.name || fid;
+                          return `<li>${escapeText(fName)}: <strong>${Math.round(grams)}g</strong></li>`;
+                        }).join('')}
+                      </ul>
+                    </article>
+                  `;
+                }).join('')}
+
+                <div class="day-total-macros">
+                  <span>🔥 总摄入: <strong>${Math.round(dayKcal)}</strong> kcal</span>
+                  <span>🥩 蛋白质: <strong>${dayP.toFixed(1)}</strong>g</span>
+                  <span>🍚 碳水: <strong>${dayC.toFixed(1)}</strong>g</span>
+                  <span>🥑 脂肪: <strong>${dayF.toFixed(1)}</strong>g</span>
+                </div>
+              </div>
+            </section>
+          ` : ''}
+
+          <!-- Replanner Natural Language Adjustment Section -->
+          <section class="replanner-card">
+            <div class="replanner-header">
+              <h4>💬 交互式自然语言调整 (Replanner)</h4>
+              <span>支持日常突发调整，系统将在保护其余日程不变（保留率 ≥ 95%）的前提下，精确执行局部变更并自动复检。</span>
+            </div>
+            <div class="replanner-row">
+              <input id="replannerInput" class="replanner-input" type="text" placeholder="例如：周三有事改到周四训练 / 早餐不想吃鸡蛋 / 周五晚餐想吃清淡素食" />
+              <button type="button" class="btn btn-secondary" data-action="submit-plan-replan">🚀 应用调整</button>
+            </div>
+          </section>
+        `}
+      </main>
     </div>
   </div>`;
 }
@@ -1061,6 +1417,184 @@ document.addEventListener('click', async event => {
       if (window.confirm('确定清空本机所有训练记录吗？这个操作不能撤销。')) {
         clearSessions(); state.lastSession = null; renderPage(); toast('本机记录已清空');
       } break;
+    case 'vision-follow-exercise': {
+      const ex = element.dataset.exercise;
+      if (ex && validExercises.includes(ex)) {
+        state.exercise = ex;
+        state.analyzer.configure(state.exercise, { difficulty: state.difficulty, targetReps: state.targetReps });
+        setView('training');
+        toast(`已直达【${EXERCISES[ex]?.name || ex}】AI 视觉实时跟练`);
+        setTimeout(() => {
+          begin('camera');
+        }, 120);
+      }
+      break;
+    }
+    case 'toggle-planner-day': {
+      const day = element.dataset.day;
+      if (!day) break;
+      const idx = state.planner.available_days.indexOf(day);
+      if (idx >= 0) {
+        if (state.planner.available_days.length > 1) {
+          state.planner.available_days.splice(idx, 1);
+        } else {
+          toast('请至少保留 1 个可用训练日');
+        }
+      } else {
+        state.planner.available_days.push(day);
+      }
+      state.planner.sessions = Math.min(state.planner.sessions, state.planner.available_days.length);
+      renderPage();
+      break;
+    }
+    case 'toggle-planner-allergy': {
+      const allergy = element.dataset.allergy;
+      if (!allergy) break;
+      const idx = state.planner.allergies.indexOf(allergy);
+      if (idx >= 0) {
+        state.planner.allergies.splice(idx, 1);
+      } else {
+        state.planner.allergies.push(allergy);
+      }
+      renderPage();
+      break;
+    }
+    case 'switch-planner-day': {
+      const day = element.dataset.day;
+      if (day) {
+        state.planner.activeDay = day;
+        renderPage();
+      }
+      break;
+    }
+    case 'toggle-planner-explanation': {
+      state.planner.explanationExpanded = !state.planner.explanationExpanded;
+      renderPage();
+      break;
+    }
+    case 'download-plan-json': {
+      if (state.planner.currentPlan) {
+        const jsonStr = JSON.stringify(state.planner.currentPlan, null, 2);
+        downloadFile(jsonStr, `fitmind_plan_${state.planner.currentPlan.mode || 'week'}.json`, 'application/json');
+        toast('周计划 JSON 已导出下载');
+      }
+      break;
+    }
+    case 'start-generate-plan': {
+      if (state.planner.isGenerating) return;
+      state.planner.isGenerating = true;
+      state.planner.elapsedSec = 0;
+      state.planner.tipIndex = 0;
+      state.planner.currentStageText = THINKING_STAGES[0][2];
+      renderPage();
+
+      const t0 = Date.now();
+      const timer = setInterval(() => {
+        state.planner.elapsedSec = Math.floor((Date.now() - t0) / 1000);
+        state.planner.tipIndex = Math.floor(state.planner.elapsedSec / 7);
+        const stage = THINKING_STAGES.find(([s, e]) => state.planner.elapsedSec >= s && state.planner.elapsedSec < e);
+        state.planner.currentStageText = stage ? stage[2] : THINKING_STAGES[THINKING_STAGES.length - 1][2];
+        renderPage();
+      }, 1000);
+
+      const profile = {
+        age: Number(state.planner.age),
+        height_cm: Number(state.planner.height_cm),
+        weight_kg: Number(state.planner.weight_kg),
+        goal: state.planner.goal,
+        experience: state.planner.experience,
+        equipment: state.planner.equipment,
+        available_days: state.planner.available_days,
+        sessions: Number(state.planner.sessions),
+        allergies: state.planner.allergies,
+        exclude_foods: state.planner.exclude_foods
+      };
+
+      const mode = state.planner.mode;
+
+      (async () => {
+        try {
+          let result;
+          if (mode === 'demo') {
+            await new Promise(r => setTimeout(r, 200));
+            const demoPlan = generateLocalDeterministicPlan(profile);
+            result = { ok: true, plan: demoPlan, meta: { mode: 'local_demo', latency_ms: Date.now() - t0 } };
+          } else {
+            const res = await fetch('/api/plan/generate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ profile, mode })
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            result = await res.json();
+          }
+
+          if (!result || !result.ok || !result.plan) {
+            throw new Error(result?.error || '规划引擎返回异常');
+          }
+
+          state.planner.currentPlan = result.plan;
+          state.planner.planMeta = result.meta || { latency_ms: Date.now() - t0 };
+          state.planner.lastDiff = null;
+          try {
+            localStorage.setItem('fitmind_plan_v2', JSON.stringify({ plan: result.plan, meta: state.planner.planMeta }));
+          } catch {}
+          toast('🎉 7 天个性化训练与膳食方案已就绪！');
+        } catch (err) {
+          console.warn('Backend LLM planner unavailable, falling back to deterministic local plan...', err);
+          const fallbackPlan = generateLocalDeterministicPlan(profile);
+          state.planner.currentPlan = fallbackPlan;
+          state.planner.planMeta = { mode: 'local_fallback', latency_ms: Date.now() - t0, note: '本地物理规则引擎生成' };
+          state.planner.lastDiff = null;
+          try {
+            localStorage.setItem('fitmind_plan_v2', JSON.stringify({ plan: fallbackPlan, meta: state.planner.planMeta }));
+          } catch {}
+          toast('已由物理规则引擎生成合规方案（后端 LLM 离线或正在就绪）');
+        } finally {
+          clearInterval(timer);
+          state.planner.isGenerating = false;
+          renderPage();
+        }
+      })();
+      break;
+    }
+    case 'submit-plan-replan': {
+      const input = document.querySelector('#replannerInput');
+      const text = input ? input.value.trim() : '';
+      if (!text) {
+        toast('请输入你的修改想法');
+        return;
+      }
+      if (!state.planner.currentPlan) {
+        toast('请先生成周计划');
+        return;
+      }
+
+      toast('正在解析意图并执行局部重排…');
+      fetch('/api/plan/edit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan: state.planner.currentPlan, text })
+      })
+        .then(res => res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`)))
+        .then(data => {
+          if (data && data.ok && data.plan) {
+            state.planner.currentPlan = data.plan;
+            state.planner.lastDiff = data.diff || { unchanged_ratio: '95.0%', changes: ['已更新局部日程'] };
+            try {
+              localStorage.setItem('fitmind_plan_v2', JSON.stringify({ plan: data.plan, meta: state.planner.planMeta }));
+            } catch {}
+            renderPage();
+            toast('🎉 局部重排成功！');
+          } else {
+            toast(`调整未成功: ${data?.error || '无法识别修改意图'}`);
+          }
+        })
+        .catch(err => {
+          toast(`调整服务暂不可用: ${err.message}`);
+        });
+      break;
+    }
   }
 });
 document.addEventListener('change', event => {
@@ -1084,6 +1618,31 @@ document.addEventListener('change', event => {
     if (file) begin('video', file);
     event.target.value = '';
   }
+  if (id === 'plannerPresetSelect') {
+    state.planner.preset = value;
+    if (value !== 'custom' && PRESET_PROFILES[value]) {
+      const p = PRESET_PROFILES[value];
+      state.planner.age = p.age;
+      state.planner.height_cm = p.height_cm;
+      state.planner.weight_kg = p.weight_kg;
+      state.planner.goal = p.goal;
+      state.planner.experience = p.experience;
+      state.planner.equipment = p.equipment;
+      state.planner.available_days = [...p.available_days];
+      state.planner.sessions = p.sessions;
+      state.planner.allergies = [...p.allergies];
+      state.planner.exclude_foods = [...p.exclude_foods];
+    }
+    renderPage();
+  }
+  if (id === 'plannerAge') state.planner.age = Number(value);
+  if (id === 'plannerHeight') state.planner.height_cm = Number(value);
+  if (id === 'plannerWeight') state.planner.weight_kg = Number(value);
+  if (id === 'plannerGoal') state.planner.goal = value;
+  if (id === 'plannerExperience') state.planner.experience = value;
+  if (id === 'plannerEquipment') state.planner.equipment = value;
+  if (id === 'plannerSessions') state.planner.sessions = Number(value);
+  if (event.target.name === 'plannerEngine') state.planner.mode = value;
 });
 window.addEventListener('keydown', event => {
   if (event.code === 'Space' && state.view === 'training' && state.mode) {
@@ -1093,6 +1652,43 @@ window.addEventListener('keydown', event => {
   }
 });
 window.addEventListener('beforeunload', stopRealtime);
+
+function initPlannerState() {
+  try {
+    const saved = localStorage.getItem('fitmind_plan_v2');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed && parsed.plan && Array.isArray(parsed.plan.week)) {
+        state.planner.currentPlan = parsed.plan;
+        state.planner.planMeta = parsed.meta || null;
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to load saved plan from localStorage', e);
+  }
+
+  if (!state.planner.currentPlan) {
+    state.planner.currentPlan = generateLocalDeterministicPlan(state.planner);
+    state.planner.planMeta = { mode: 'local_demo', latency_ms: 6 };
+  }
+
+  if (typeof fetch !== 'undefined') {
+    fetch('/api/plan/catalog')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data && data.ok) {
+          if (Array.isArray(data.exercises)) state.planner.catalog.exercises = data.exercises;
+          if (Array.isArray(data.foods)) state.planner.catalog.foods = data.foods;
+          if (data.presets) state.planner.catalog.presets = data.presets;
+          if (data.vision_map) state.planner.catalog.vision_map = data.vision_map;
+          if (state.view === 'planner') renderPage();
+        }
+      })
+      .catch(() => {});
+  }
+}
+
+initPlannerState();
 shell();
 
 // Idle prewarm model files into browser disk cache

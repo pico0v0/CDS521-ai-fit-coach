@@ -55,7 +55,28 @@ async function handleRequest(req, res) {
       return;
     }
 
-    // Forward /plan requests to FitMind AI (for local dev mode)
+    // Forward /api/plan requests to FitMind AI REST API service
+    if (pathname.startsWith('/api/plan/') || pathname.startsWith('/plan/api/')) {
+      const fitmindPort = Number(process.env.FITMIND_PORT) || 6692;
+      const proxyReq = httpRequest({
+        hostname: '127.0.0.1',
+        port: fitmindPort,
+        path: req.url,
+        method: req.method,
+        headers: { ...req.headers, host: `127.0.0.1:${fitmindPort}` }
+      }, (proxyRes) => {
+        res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
+        proxyRes.pipe(res);
+      });
+      proxyReq.on('error', () => {
+        res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: false, error: 'FitMind AI REST API 未启动', fallback_available: true }));
+      });
+      req.pipe(proxyReq);
+      return;
+    }
+
+    // Forward /plan requests to FitMind AI (for backwards compatibility)
     if (pathname === '/plan' || pathname.startsWith('/plan/')) {
       const fitmindPort = Number(process.env.FITMIND_PORT) || 6692;
       const proxyReq = httpRequest({
